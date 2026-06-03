@@ -4,3 +4,20 @@
 
 # LangGraph
 .langgraph_api/
+
+*.png
+
+# Python / uv (backend)
+api/.venv/
+api/data/
+__pycache__/
+*.pyc
+.env
+
+# Node / bun (frontend)
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+
