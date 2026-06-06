@@ -1,14 +1,34 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: thinkai-db
+    environment:
+      POSTGRES_USER: thinkai
+      POSTGRES_PASSWORD: thinkai
+      POSTGRES_DB: thinkai
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thinkai"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   api:
     build: ./api
     container_name: thinkai-api
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
+      DATABASE_URL: postgresql+asyncpg://thinkai:thinkai@db:5432/thinkai
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GEMINI_MODEL: gemini-2.0-flash
-      DB_PATH: /data/sessions.sqlite
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       CORS_ORIGINS: "*"
-    volumes:
-      - api-data:/data
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -17,7 +37,6 @@ services:
     build:
       context: ./web
       args:
-        # Em produção (EC2), troque para http://SEU_IP_PUBLICO:8000
         VITE_API_URL: http://localhost:8000
     container_name: thinkai-web
     depends_on:
@@ -27,4 +46,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  api-data:
+  postgres-data:
