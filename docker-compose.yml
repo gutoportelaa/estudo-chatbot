@@ -1,0 +1,30 @@
+services:
+  api:
+    build: ./api
+    container_name: thinkai-api
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: gemini-2.0-flash
+      DB_PATH: /data/sessions.sqlite
+      CORS_ORIGINS: "*"
+    volumes:
+      - api-data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      args:
+        # Em produção (EC2), troque para http://SEU_IP_PUBLICO:8000
+        VITE_API_URL: http://localhost:8000
+    container_name: thinkai-web
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+    restart: unless-stopped
+
+volumes:
+  api-data:
