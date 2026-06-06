@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import models  # noqa: F401 — registra os modelos antes do create_all
 from .config import get_settings
 from .database import Base, engine
+from .routers import auth as auth_router
 
 
 @asynccontextmanager
@@ -31,6 +32,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+app.include_router(auth_router.router)
 
 
 @app.get("/health")
