@@ -38,7 +38,7 @@ export function ChatInput({ onSend, disabled, value, onChange }: Props) {
       <textarea
         ref={taRef}
         className="chat-textarea"
-        placeholder="How can ThinkAI help you today?"
+        placeholder="Como o ThinkAI pode te ajudar hoje?"
         value={value}
         onChange={autoGrow}
         onKeyDown={onKeyDown}

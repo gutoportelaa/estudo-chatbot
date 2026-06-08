@@ -14,24 +14,11 @@ e **LangGraph** para orquestração com histórico isolado por sessão.
 
 ## Como funciona (arquitetura)
 
-```
-Browser (React/Vite)               FastAPI (api)                 Google Gemini API
-  │  session_id (UUID,                 │                            │
-  │  guardado em localStorage)         │                            │
-  ├── POST /session ──────────────────►│  gera UUID                 │
-  │                                    │                            │
-  ├── POST /chat (SSE) ───────────────►│  LangGraph.astream ───────►│ gemini-2.0-flash
-  │◄───── tokens (text/event-stream) ──┤  thread_id = session_id    │
-  │                                    │                            │
-  │                              SqliteSaver (data/sessions.sqlite)
-  │                              histórico isolado por sessão
-```
+![Diagrama de arquitetura do ThinkAI](docs/diagrama_thinkai.png)
 
 - **Multiusuário:** o backend é assíncrono; cada requisição carrega seu `session_id`.
-- **Isolamento:** o `SqliteSaver` do LangGraph guarda o histórico por `thread_id`, então cada
-  resposta volta apenas para a sessão/usuário correto (verificado: a sessão A lembra o nome
-  informado; a sessão B não tem acesso a ele).
-- **Persistência:** o histórico sobrevive a reinícios do servidor (fica em `api/data/sessions.sqlite`).
+- **Isolamento:** o histórico é guardado por `thread_id = session_id`, então cada resposta volta apenas para a sessão correta.
+- **Persistência:** o histórico sobrevive a reinícios do servidor (PostgreSQL containerizado).
 
 ---
 
