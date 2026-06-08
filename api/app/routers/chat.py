@@ -1,167 +1,134 @@
-from __future__ import annotations
+from collections.abc import AsyncGenerator
+from typing import Annotated
 
-import uuid
-from datetime import datetime
-
-from fastapi import APIRouter
-from fastapi import Depends
-from fastapi import HTTPException
-from fastapi import Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from pydantic import Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..adk_runtime import APP_NAME
-from ..adk_runtime import get_runtime
-from ..adk_runtime import list_sessions_for_user
-from ..adk_runtime import load_history_for_session
 from ..auth import get_current_user
-from ..models import User
+from ..config import get_settings
+from ..database import AsyncSessionLocal, get_db
+from ..models import Message, Session, User
 
-router = APIRouter(tags=["sessions"])
-
-
-class SessionCreateResponse(BaseModel):
-    session_id: str
+router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-class SessionSummary(BaseModel):
-    id: str
-    user_id: str
-    title: str | None = None
-    created_at: datetime
-    updated_at: datetime
-    message_count: int = 0
-
-    model_config = {"from_attributes": True}
-
-
-class HistoryMessage(BaseModel):
-    role: str
+class SendMessageBody(BaseModel):
     content: str
 
 
-class HistoryResponse(BaseModel):
-    session_id: str
-    messages: list[HistoryMessage] = Field(default_factory=list)
-
-
-class ChatRequest(BaseModel):
-    session_id: str
-    message: str
-
-
-@router.post("/session", response_model=SessionCreateResponse)
-@router.post("/sessions", response_model=SessionCreateResponse)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_session(
-    current_user: User = Depends(get_current_user),
-) -> SessionCreateResponse:
-    session = await get_runtime().session_service.create_session(
-        app_name=APP_NAME,
-        user_id=current_user.id,
-        session_id=str(uuid.uuid4()),
-    )
-    return SessionCreateResponse(session_id=session.id)
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    session = Session(user_id=current_user.id)
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    return {"id": session.id, "title": session.title, "created_at": session.created_at.isoformat()}
 
 
-@router.get("/sessions", response_model=list[SessionSummary])
+@router.get("")
 async def list_sessions(
-    current_user: User = Depends(get_current_user),
-) -> list[SessionSummary]:
-    summaries = await list_sessions_for_user(current_user.id)
-    return [SessionSummary(**summary) for summary in summaries]
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[dict]:
+    result = await db.execute(
+        select(Session)
+        .where(Session.user_id == current_user.id)
+        .order_by(Session.updated_at.desc())
+    )
+    return [
+        {"id": s.id, "title": s.title, "created_at": s.created_at.isoformat()}
+        for s in result.scalars().all()
+    ]
 
 
-@router.get("/history/{session_id}", response_model=HistoryResponse)
-async def get_history(
+@router.get("/{session_id}/messages")
+async def get_messages(
     session_id: str,
-    current_user: User = Depends(get_current_user),
-) -> HistoryResponse:
-    session = await get_runtime().session_service.get_session(
-        app_name=APP_NAME,
-        user_id=current_user.id,
-        session_id=session_id,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[dict]:
+    session = await db.get(Session, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sessão não encontrada")
+
+    result = await db.execute(
+        select(Message).where(Message.session_id == session_id).order_by(Message.created_at)
     )
-    if session is None:
-        raise HTTPException(status_code=404, detail="Sessão não encontrada")
-
-    messages = await load_history_for_session(user_id=current_user.id, session_id=session_id)
-    return HistoryResponse(
-        session_id=session_id,
-        messages=[HistoryMessage(**message) for message in messages],
-    )
+    return [{"id": m.id, "role": m.role, "content": m.content} for m in result.scalars().all()]
 
 
-@router.delete("/sessions/{session_id}", status_code=204)
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(
     session_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
-    runtime = get_runtime()
-    existing = await runtime.session_service.get_session(
-        app_name=APP_NAME,
-        user_id=current_user.id,
-        session_id=session_id,
-    )
-    if existing is None:
-        raise HTTPException(status_code=404, detail="Sessão não encontrada")
-
-    await runtime.session_service.delete_session(
-        app_name=APP_NAME,
-        user_id=current_user.id,
-        session_id=session_id,
-    )
+    session = await db.get(Session, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sessão não encontrada")
+    await db.delete(session)
+    await db.commit()
 
 
-@router.post("/chat")
-async def chat(
-    body: ChatRequest,
-    current_user: User = Depends(get_current_user),
+@router.post("/{session_id}/messages")
+async def send_message(
+    session_id: str,
+    body: SendMessageBody,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> StreamingResponse:
-    runtime = get_runtime()
-    session = await get_or_create_session(user_id=current_user.id, session_id=body.session_id)
+    session = await db.get(Session, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sessão não encontrada")
 
-    async def event_stream():
-        try:
-            from google.genai import types
+    history_result = await db.execute(
+        select(Message).where(Message.session_id == session_id).order_by(Message.created_at)
+    )
+    history = history_result.scalars().all()
 
-            user_message = types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=body.message)],
-            )
+    user_msg = Message(session_id=session_id, role="user", content=body.content)
+    db.add(user_msg)
+    if not session.title:
+        session.title = body.content[:60]
+    await db.commit()
 
-            async for event in runtime.runner.run_async(
-                user_id=session.user_id,
-                session_id=session.id,
-                new_message=user_message,
-            ):
-                content = getattr(event, "content", None)
-                if not content or not getattr(content, "parts", None):
-                    continue
-
-                chunks: list[str] = []
-                for part in content.parts:
-                    text = getattr(part, "text", None)
-                    if text:
-                        chunks.append(text)
-                if not chunks:
-                    continue
-
-                payload = "".join(chunks).replace("\r", "").replace("\n", "\\n")
-                yield f"data: {payload}\n\n"
-
-            yield "data: [DONE]\n\n"
-        except Exception as exc:  # pragma: no cover - streamed error path
-            message = str(exc).replace("\r", " ").replace("\n", " ")
-            yield f"data: [ERROR] {message}\n\n"
+    contents = [
+        {"role": "user" if m.role == "user" else "model", "parts": [{"text": m.content}]}
+        for m in history
+    ]
+    contents.append({"role": "user", "parts": [{"text": body.content}]})
 
     return StreamingResponse(
-        event_stream(),
+        _stream_gemini(session_id, contents),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+async def _stream_gemini(session_id: str, contents: list) -> AsyncGenerator[str, None]:
+    from google import genai
+
+    settings = get_settings()
+    client = genai.Client(api_key=settings.gemini_api_key)
+
+    full_text = ""
+    async for chunk in client.aio.models.generate_content_stream(
+        model=settings.gemini_model,
+        contents=contents,
+        config={"system_instruction": settings.system_prompt},
+    ):
+        if chunk.text:
+            full_text += chunk.text
+            yield f"data: {chunk.text.replace(chr(10), chr(92) + 'n')}\n\n"
+
+    yield "data: [DONE]\n\n"
+
+    async with AsyncSessionLocal() as save_db:
+        save_db.add(Message(session_id=session_id, role="assistant", content=full_text))
+        await save_db.commit()

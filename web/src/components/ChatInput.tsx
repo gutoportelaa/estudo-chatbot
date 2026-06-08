@@ -20,7 +20,6 @@ export function ChatInput({ onSend, disabled, value, onChange }: Props) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    // Enter envia; Shift+Enter quebra linha.
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();

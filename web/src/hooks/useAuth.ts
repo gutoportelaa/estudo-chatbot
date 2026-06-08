@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  getAuthToken,
-  getProfile,
-  logout as clearAuth,
-  signin,
-  signup,
-  type AuthUser,
-} from "../api/client";
+import { getAuthToken, getProfile, logout as clearAuth, signin, signup, type AuthUser } from "../api/client";
 
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -22,44 +15,34 @@ export function useAuth() {
         if (active) setIsLoading(false);
         return;
       }
-
       try {
         const profile = await getProfile();
-        if (active) {
-          setUser(profile);
-          setError(null);
-        }
+        if (active) { setUser(profile); setError(null); }
       } catch {
         clearAuth();
-        if (active) {
-          setUser(null);
-        }
+        if (active) setUser(null);
       } finally {
         if (active) setIsLoading(false);
       }
     }
 
     void bootstrap();
-
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     setIsLoading(true);
     setError(null);
-
     try {
       await signin(username, password);
       const profile = await getProfile();
       setUser(profile);
       return profile;
-    } catch (error_) {
+    } catch (err) {
       clearAuth();
       setUser(null);
-      setError(error_ instanceof Error ? error_.message : "Falha ao autenticar");
-      throw error_;
+      setError(err instanceof Error ? err.message : "Falha ao autenticar");
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -68,18 +51,17 @@ export function useAuth() {
   const register = useCallback(async (username: string, password: string) => {
     setIsLoading(true);
     setError(null);
-
     try {
       await signup(username, password);
       await signin(username, password);
       const profile = await getProfile();
       setUser(profile);
       return profile;
-    } catch (error_) {
+    } catch (err) {
       clearAuth();
       setUser(null);
-      setError(error_ instanceof Error ? error_.message : "Falha ao cadastrar");
-      throw error_;
+      setError(err instanceof Error ? err.message : "Falha ao cadastrar");
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -91,13 +73,5 @@ export function useAuth() {
     setError(null);
   }, []);
 
-  return {
-    user,
-    isLoading,
-    error,
-    isAuthenticated: Boolean(user),
-    login,
-    register,
-    logout,
-  };
+  return { user, isLoading, error, isAuthenticated: Boolean(user), login, register, logout };
 }

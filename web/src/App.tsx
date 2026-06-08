@@ -4,8 +4,8 @@ import { Greeting } from "./components/Greeting";
 import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
 import { PromptCards } from "./components/PromptCards";
-import { useChat } from "./hooks/useChat";
 import { useAuth } from "./hooks/useAuth";
+import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
 import { useTheme } from "./hooks/useTheme";
 
@@ -22,19 +22,6 @@ export default function App() {
 
   const hasConversation = messages.length > 0;
 
-  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!username.trim() || !password.trim()) return;
-
-    if (authMode === "signin") {
-      await auth.login(username.trim(), password);
-    } else {
-      await auth.register(username.trim(), password);
-    }
-
-    setPassword("");
-  };
-
   if (auth.isLoading) {
     return (
       <div className="app">
@@ -43,8 +30,7 @@ export default function App() {
           <main className="content is-empty">
             <div className="welcome">
               <div className="orb" />
-              <h1 className="greeting-title">Carregando sua sessão...</h1>
-              <p className="greeting-subtitle">Validando autenticação e recuperando dados.</p>
+              <h1 className="greeting-title">Carregando...</h1>
             </div>
           </main>
         </div>
@@ -53,17 +39,31 @@ export default function App() {
   }
 
   if (!auth.isAuthenticated || !auth.user) {
+    const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!username.trim() || !password.trim()) return;
+      try {
+        if (authMode === "signin") {
+          await auth.login(username.trim(), password);
+        } else {
+          await auth.register(username.trim(), password);
+        }
+        setPassword("");
+      } catch {
+        // error is set inside useAuth
+      }
+    };
+
     return (
       <div className="app">
         <div className="window">
           <Header theme={theme} onToggleTheme={toggleTheme} />
-
           <main className="content is-empty">
             <div className="welcome">
               <div className="orb" />
               <h1 className="greeting-title">Entre para continuar</h1>
               <p className="greeting-subtitle">
-                Protótipo funcional de chatbot multiusuário com sessões separadas por conta.
+                Chatbot multiusuário com sessões separadas por conta.
               </p>
 
               <form className="auth-card" onSubmit={submitAuth}>
@@ -133,7 +133,7 @@ export default function App() {
             <span>Sessão</span>
             <select
               value={sessionId ?? ""}
-              onChange={(event) => sessions.setActiveSessionId(event.target.value)}
+              onChange={(e) => sessions.setActiveSessionId(e.target.value)}
               disabled={!sessions.sessions.length}
             >
               {sessions.sessions.map((session, index) => (
@@ -154,7 +154,7 @@ export default function App() {
             <MessageList messages={messages} />
           ) : (
             <div className="welcome">
-              <Greeting />
+              <Greeting username={auth.user.username} />
               <PromptCards onPick={(p) => setDraft(p)} />
             </div>
           )}
@@ -164,7 +164,7 @@ export default function App() {
           <ChatInput
             value={draft}
             onChange={setDraft}
-            onSend={send}
+            onSend={(text) => { setDraft(""); send(text); }}
             disabled={isStreaming || !sessionId}
           />
           <div className="composer-footer">

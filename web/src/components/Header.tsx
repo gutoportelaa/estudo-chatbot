@@ -9,7 +9,7 @@ interface Props {
 }
 
 export function Header({ theme, onToggleTheme, userLabel, onLogout }: Props) {
-  const avatarLabel = userLabel?.trim().charAt(0).toUpperCase() ?? "M";
+  const avatarLabel = userLabel?.trim().charAt(0).toUpperCase() ?? "?";
 
   return (
     <header className="header">
@@ -30,11 +30,10 @@ export function Header({ theme, onToggleTheme, userLabel, onLogout }: Props) {
           {theme === "light" ? <MoonIcon /> : <SunIcon />}
         </button>
         {onLogout ? (
-          <button className="icon-btn" onClick={onLogout} aria-label="Sair" title="Sair">
-            ⎋
+          <button className="avatar" onClick={onLogout} title="Sair" aria-label="Sair da conta">
+            {avatarLabel}
           </button>
         ) : null}
-        <span className="avatar">{avatarLabel}</span>
       </div>
     </header>
   );

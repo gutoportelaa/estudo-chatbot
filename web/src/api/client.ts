@@ -7,17 +7,17 @@ export interface AuthUser {
   created_at: string;
 }
 
-export interface HistoryMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
 export interface SessionSummary {
   id: string;
   title?: string | null;
   created_at?: string;
   updated_at?: string;
-  user_id?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
 }
 
 interface ApiErrorPayload {
@@ -25,7 +25,7 @@ interface ApiErrorPayload {
   [key: string]: unknown;
 }
 
-class ApiError extends Error {
+export class ApiError extends Error {
   status: number;
   payload?: ApiErrorPayload;
 
@@ -37,52 +37,25 @@ class ApiError extends Error {
   }
 }
 
-function readStoredToken(): string | null {
+function readToken(): string | null {
   return localStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
-function storeToken(token: string): void {
-  localStorage.setItem(TOKEN_STORAGE_KEY, token);
-}
-
-function clearStoredToken(): void {
-  localStorage.removeItem(TOKEN_STORAGE_KEY);
-}
-
 export function getAuthToken(): string | null {
-  return readStoredToken();
+  return readToken();
 }
 
 export function setAuthToken(token: string): void {
-  storeToken(token);
-}
-
-export function authHeaders(token: string | null = readStoredToken()): Record<string, string> {
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  localStorage.setItem(TOKEN_STORAGE_KEY, token);
 }
 
 export function logout(): void {
-  clearStoredToken();
-}
-
-function mergeHeaders(...sources: Array<HeadersInit | undefined>): Headers {
-  const headers = new Headers();
-
-  for (const source of sources) {
-    if (!source) continue;
-    const current = new Headers(source);
-    current.forEach((value, key) => {
-      headers.set(key, value);
-    });
-  }
-
-  return headers;
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
 async function readErrorPayload(res: Response): Promise<ApiErrorPayload | undefined> {
-  const contentType = res.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) return undefined;
-
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return undefined;
   try {
     return (await res.json()) as ApiErrorPayload;
   } catch {
@@ -90,204 +63,93 @@ async function readErrorPayload(res: Response): Promise<ApiErrorPayload | undefi
   }
 }
 
-async function requestJson<T>(
-  path: string,
-  init: RequestInit = {},
-  options: { useAuth?: boolean } = {},
-): Promise<T> {
-  const headers = mergeHeaders(init.headers);
-  const useAuth = options.useAuth !== false;
-  const token = useAuth ? readStoredToken() : null;
+async function req<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
+  const headers = new Headers(init.headers);
+  const token = auth ? readToken() : null;
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  if (init.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers,
-  });
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
 
   if (!res.ok) {
     const payload = await readErrorPayload(res);
-    if (res.status === 401) {
-      clearStoredToken();
-    }
-    throw new ApiError(res.status, payload?.detail ?? `Request failed (${res.status})`, payload);
+    if (res.status === 401) logout();
+    throw new ApiError(res.status, payload?.detail ?? `Erro ${res.status}`, payload);
   }
 
   if (res.status === 204) return undefined as T;
-
-  const contentType = res.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
-    return undefined as T;
-  }
-
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return undefined as T;
   return (await res.json()) as T;
 }
 
-function extractSessionId(payload: unknown): string {
-  if (typeof payload === "string") return payload;
-
-  if (payload && typeof payload === "object") {
-    const record = payload as Record<string, unknown>;
-    const sessionId = record.session_id ?? record.id;
-    if (typeof sessionId === "string") return sessionId;
-  }
-
-  throw new Error("Resposta inválida ao criar sessão");
-}
-
-function extractHistoryMessages(payload: unknown): HistoryMessage[] {
-  if (Array.isArray(payload)) {
-    return payload.filter((item): item is HistoryMessage => {
-      return Boolean(
-        item &&
-          typeof item === "object" &&
-          typeof (item as HistoryMessage).role === "string" &&
-          typeof (item as HistoryMessage).content === "string",
-      );
-    });
-  }
-
-  if (payload && typeof payload === "object") {
-    const record = payload as Record<string, unknown>;
-    const messages = record.messages;
-    if (Array.isArray(messages)) {
-      return messages.filter((item): item is HistoryMessage => {
-        return Boolean(
-          item &&
-            typeof item === "object" &&
-            typeof (item as HistoryMessage).role === "string" &&
-            typeof (item as HistoryMessage).content === "string",
-        );
-      });
-    }
-  }
-
-  return [];
-}
-
-function extractSessionList(payload: unknown): SessionSummary[] {
-  const isSessionSummary = (item: unknown): item is SessionSummary => {
-    return Boolean(
-      item &&
-        typeof item === "object" &&
-        typeof (item as SessionSummary).id === "string",
-    );
-  };
-
-  if (Array.isArray(payload)) {
-    return payload.filter(isSessionSummary);
-  }
-
-  if (payload && typeof payload === "object") {
-    const record = payload as Record<string, unknown>;
-    const sessions = record.sessions ?? record.items ?? record.data;
-    if (Array.isArray(sessions)) {
-      return sessions.filter(isSessionSummary);
-    }
-  }
-
-  return [];
-}
+// ---------- Auth ----------
 
 export async function signup(username: string, password: string): Promise<AuthUser> {
-  return requestJson<AuthUser>(
-    "/auth/signup",
-    {
-      method: "POST",
-      body: JSON.stringify({ username, password }),
-    },
-    { useAuth: false },
-  );
+  return req<AuthUser>("/auth/signup", { method: "POST", body: JSON.stringify({ username, password }) }, false);
 }
 
 export async function signin(username: string, password: string): Promise<string> {
-  const data = await requestJson<{ access_token: string; token_type?: string }>(
+  const data = await req<{ access_token: string }>(
     "/auth/signin",
-    {
-      method: "POST",
-      body: JSON.stringify({ username, password }),
-    },
-    { useAuth: false },
+    { method: "POST", body: JSON.stringify({ username, password }) },
+    false,
   );
-
-  storeToken(data.access_token);
+  setAuthToken(data.access_token);
   return data.access_token;
 }
 
 export async function getProfile(): Promise<AuthUser> {
-  return requestJson<AuthUser>("/auth/profile");
+  return req<AuthUser>("/auth/profile");
 }
 
+// ---------- Sessions ----------
+
 export async function listSessions(): Promise<SessionSummary[]> {
-  return extractSessionList(await requestJson<unknown>("/sessions"));
+  const data = await req<unknown>("/sessions");
+  if (Array.isArray(data)) return data as SessionSummary[];
+  return [];
 }
 
 export async function createSession(): Promise<string> {
-  try {
-    const data = await requestJson<unknown>("/sessions", { method: "POST" });
-    return extractSessionId(data);
-  } catch (error) {
-    if (!(error instanceof ApiError) || (error.status !== 404 && error.status !== 405)) {
-      throw error;
-    }
-
-    const legacy = await requestJson<unknown>("/session", { method: "POST" }, { useAuth: false });
-    return extractSessionId(legacy);
-  }
+  const data = await req<{ id: string }>("/sessions", { method: "POST" });
+  return data.id;
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  await requestJson<void>(`/sessions/${sessionId}`, { method: "DELETE" });
+  await req<void>(`/sessions/${sessionId}`, { method: "DELETE" });
 }
 
-export async function fetchHistory(sessionId: string): Promise<HistoryMessage[]> {
+// ---------- Messages ----------
+
+export async function fetchMessages(sessionId: string): Promise<ChatMessage[]> {
   try {
-    return extractHistoryMessages(await requestJson<unknown>(`/history/${sessionId}`));
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      return [];
-    }
-
-    if (error instanceof ApiError && (error.status === 404 || error.status === 405)) {
-      return [];
-    }
-
-    throw error;
+    const data = await req<unknown>(`/sessions/${sessionId}/messages`);
+    if (Array.isArray(data)) return data as ChatMessage[];
+    return [];
+  } catch {
+    return [];
   }
 }
 
-/**
- * Envia uma mensagem e consome a resposta em streaming (SSE).
- * `onToken` é chamado a cada pedaço de texto recebido.
- */
-export async function streamChat(
+export async function sendMessage(
   sessionId: string,
-  message: string,
-  onToken: (token: string) => void,
+  content: string,
+  onToken: (chunk: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const headers = mergeHeaders({ "Content-Type": "application/json" }, authHeaders());
-  const res = await fetch(`${API_URL}/chat`, {
+  const token = readToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_URL}/sessions/${sessionId}/messages`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ session_id: sessionId, message }),
+    body: JSON.stringify({ content }),
     signal,
   });
 
-  if (!res.ok || !res.body) {
-    const payload = await readErrorPayload(res);
-    if (res.status === 401) {
-      clearStoredToken();
-    }
-    throw new ApiError(res.status, payload?.detail ?? "Falha ao enviar mensagem", payload);
-  }
+  if (!res.ok || !res.body) throw new ApiError(res.status, "Falha ao enviar mensagem");
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -298,7 +160,6 @@ export async function streamChat(
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
-    // Eventos SSE são separados por linha em branco.
     const parts = buffer.split("\n\n");
     buffer = parts.pop() ?? "";
 
@@ -307,10 +168,7 @@ export async function streamChat(
       if (!line.startsWith("data:")) continue;
       const payload = line.slice(5).trim();
       if (payload === "[DONE]") return;
-      // Desfaz o escape de quebras de linha feito no backend.
       onToken(payload.replace(/\\n/g, "\n"));
     }
   }
 }
-
-export { ApiError };
