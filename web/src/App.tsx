@@ -4,6 +4,7 @@ import { Greeting } from "./components/Greeting";
 import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
 import { PromptCards } from "./components/PromptCards";
+import { Sidebar } from "./components/Sidebar";
 import { useAuth } from "./hooks/useAuth";
 import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
@@ -11,6 +12,7 @@ import { useTheme } from "./hooks/useTheme";
 
 export default function App() {
   const [theme, toggleTheme] = useTheme();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const auth = useAuth();
   const sessions = useSessions(auth.user?.id ?? null, auth.isAuthenticated);
   const sessionId = sessions.activeSessionId;
@@ -50,7 +52,7 @@ export default function App() {
         }
         setPassword("");
       } catch {
-        // error is set inside useAuth
+        // error shown via auth.error
       }
     };
 
@@ -107,8 +109,8 @@ export default function App() {
 
                 {auth.error ? <p className="auth-error">{auth.error}</p> : null}
 
-                <button className="send-btn auth-submit" type="submit" disabled={auth.isLoading}>
-                  {authMode === "signin" ? "Entrar" : "Criar e entrar"}
+                <button className="auth-submit" type="submit" disabled={auth.isLoading}>
+                  {auth.isLoading ? "Aguarde..." : authMode === "signin" ? "Entrar" : "Criar e entrar"}
                 </button>
               </form>
             </div>
@@ -120,34 +122,22 @@ export default function App() {
 
   return (
     <div className="app">
+      <Sidebar
+        sessions={sessions.sessions}
+        activeSessionId={sessionId}
+        isOpen={sidebarOpen}
+        onSelect={sessions.setActiveSessionId}
+        onNew={() => void sessions.createNewSession()}
+      />
+
       <div className="window">
         <Header
           theme={theme}
           onToggleTheme={toggleTheme}
+          onToggleSidebar={() => setSidebarOpen((o) => !o)}
           userLabel={auth.user.username}
           onLogout={auth.logout}
         />
-
-        <div className="sessions-bar">
-          <label className="sessions-select">
-            <span>Sessão</span>
-            <select
-              value={sessionId ?? ""}
-              onChange={(e) => sessions.setActiveSessionId(e.target.value)}
-              disabled={!sessions.sessions.length}
-            >
-              {sessions.sessions.map((session, index) => (
-                <option key={session.id} value={session.id}>
-                  {session.title?.trim() || `Sessão ${index + 1}`}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <button className="refresh-prompts" onClick={() => void sessions.createNewSession()}>
-            Nova sessão
-          </button>
-        </div>
 
         <main className={`content ${hasConversation ? "is-chat" : "is-empty"}`}>
           {hasConversation ? (
