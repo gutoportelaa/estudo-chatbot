@@ -21,6 +21,10 @@ class SendMessageBody(BaseModel):
     content: str
 
 
+class RenameSessionBody(BaseModel):
+    title: str
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_session(
     current_user: Annotated[User, Depends(get_current_user)],
@@ -96,6 +100,28 @@ async def delete_session(
         await runner.session_service.delete_session(
             app_name=APP_NAME, user_id=current_user.id, session_id=session_id
         )
+
+
+@router.patch("/{session_id}")
+async def rename_session(
+    session_id: str,
+    body: RenameSessionBody,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    session = await db.get(Session, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sessão não encontrada")
+
+    title = body.title.strip()
+    session.title = title or None
+    await db.commit()
+    await db.refresh(session)
+    return {
+        "id": session.id,
+        "title": session.title,
+        "created_at": session.created_at.isoformat(),
+    }
 
 
 @router.post("/{session_id}/messages")

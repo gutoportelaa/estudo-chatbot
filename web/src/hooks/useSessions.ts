@@ -4,6 +4,7 @@ import {
   createSession,
   deleteSession,
   listSessions,
+  renameSession,
   type SessionSummary,
 } from "../api/client";
 
@@ -110,13 +111,17 @@ export function useSessions(userId: string | null, enabled: boolean) {
   const removeSession = useCallback(
     async (sessionId: string) => {
       await deleteSession(sessionId);
-      setSessions((current) => current.filter((session) => session.id !== sessionId));
-
-      if (activeSessionId === sessionId) {
-        setActiveSessionId(null);
-      }
+      await refresh();
     },
-    [activeSessionId],
+    [refresh],
+  );
+
+  const updateSessionTitle = useCallback(
+    async (sessionId: string, title: string) => {
+      await renameSession(sessionId, title);
+      await refresh();
+    },
+    [refresh],
   );
 
   return {
@@ -124,6 +129,7 @@ export function useSessions(userId: string | null, enabled: boolean) {
     activeSessionId,
     setActiveSessionId: selectSession,
     createNewSession,
+    updateSessionTitle,
     removeSession,
     refresh,
     isLoading,

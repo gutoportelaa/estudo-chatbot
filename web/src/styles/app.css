@@ -81,9 +81,32 @@
 
 .session-item {
   display: flex;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+
+.session-item:hover {
+  background: var(--sidebar-item-hover);
+}
+
+.session-item.is-active {
+  background: var(--sidebar-item-active);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.session-item-main {
+  display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 9px 10px;
   border: none;
   border-radius: 8px;
@@ -93,19 +116,12 @@
   font-size: 13px;
   cursor: pointer;
   text-align: left;
-  transition: background 0.12s, color 0.12s;
-  flex-shrink: 0;
+  transition: color 0.12s;
 }
 
-.session-item:hover {
-  background: var(--sidebar-item-hover);
+.session-item-main:hover,
+.session-item.is-active .session-item-main {
   color: var(--text);
-}
-
-.session-item.is-active {
-  background: var(--sidebar-item-active);
-  color: var(--text);
-  font-weight: 500;
 }
 
 .session-item-title {
@@ -113,6 +129,73 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+
+.session-actions {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.session-menu-btn {
+  width: 32px;
+  height: 100%;
+  min-height: 36px;
+  flex: 0 0 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.12s, color 0.12s;
+}
+
+.session-menu-btn:hover,
+.session-menu-btn:focus-visible {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.session-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.session-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.session-menu-item:hover {
+  background: var(--surface-soft);
+}
+
+.session-menu-item.is-danger {
+  color: #c94a4a;
+}
+
+.session-menu-item.is-danger:hover {
+  background: color-mix(in srgb, #c94a4a 12%, transparent);
 }
 
 /* ---------- Janela principal ---------- */
@@ -596,6 +679,9 @@
 .icon-btn:focus-visible,
 .send-btn:focus-visible,
 .session-item:focus-visible,
+.session-item-main:focus-visible,
+.session-menu-btn:focus-visible,
+.session-menu-item:focus-visible,
 .sidebar-new-btn:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 60%, white);
   outline-offset: 2px;

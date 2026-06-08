@@ -204,6 +204,7 @@ npm run dev
 - tela inicial mostra formulário de autenticação
 - `Criar conta` cria usuário e já autentica
 - após login, aparece seletor de sessão + botão `Nova sessão`
+- cada conversa tem menu de três pontos para `Renomear` ou `Remover conversa`
 - enviar mensagem faz streaming normalmente
 - trocar sessão troca histórico
 - botão de logout limpa estado autenticado

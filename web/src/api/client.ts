@@ -120,6 +120,13 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await req<void>(`/sessions/${sessionId}`, { method: "DELETE" });
 }
 
+export async function renameSession(sessionId: string, title: string): Promise<SessionSummary> {
+  return req<SessionSummary>(`/sessions/${sessionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+}
+
 // ---------- Messages ----------
 
 export async function fetchMessages(sessionId: string): Promise<ChatMessage[]> {

@@ -128,6 +128,20 @@ export default function App() {
         isOpen={sidebarOpen}
         onSelect={sessions.setActiveSessionId}
         onNew={() => void sessions.createNewSession()}
+        onRename={async (id, currentTitle) => {
+          const currentLabel = currentTitle?.trim() || "Conversa sem título";
+          const nextTitle = window.prompt("Novo nome da conversa", currentLabel);
+          if (nextTitle === null) return;
+          const trimmed = nextTitle.trim();
+          if (!trimmed) return;
+          await sessions.updateSessionTitle(id, trimmed);
+        }}
+        onDelete={async (id) => {
+          const sessionTitle = sessions.sessions.find((session) => session.id === id)?.title?.trim();
+          const label = sessionTitle || "esta conversa";
+          if (!window.confirm(`Apagar ${label}? Essa ação não pode ser desfeita.`)) return;
+          await sessions.removeSession(id);
+        }}
       />
 
       <div className="window">
@@ -154,7 +168,10 @@ export default function App() {
           <ChatInput
             value={draft}
             onChange={setDraft}
-            onSend={(text) => { setDraft(""); send(text); }}
+            onSend={(text) => {
+              setDraft("");
+              send(text);
+            }}
             disabled={isStreaming || !sessionId}
           />
           <div className="composer-footer">
