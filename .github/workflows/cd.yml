@@ -17,7 +17,7 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           for attempt in {1..20}; do
-            if timeout 5 bash -c "</dev/tcp/$EC2_HOST/22" 2>/dev/null; then
+            if timeout 5 bash -c "echo > /dev/tcp/$EC2_HOST/22" 2>/dev/null; then
               echo "SSH disponível na tentativa $attempt."
               exit 0
             fi
