@@ -16,13 +16,13 @@ jobs:
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          for attempt in {1..40}; do
-            if nc -z -w5 "$EC2_HOST" 22; then
+          for attempt in {1..20}; do
+            if timeout 5 bash -c "</dev/tcp/$EC2_HOST/22" 2>/dev/null; then
               echo "SSH disponível na tentativa $attempt."
               exit 0
             fi
 
-            echo "Aguardando SSH da EC2... tentativa $attempt/40"
+            echo "Aguardando SSH da EC2... tentativa $attempt/20"
             sleep 15
           done
 
