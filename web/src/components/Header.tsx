@@ -4,9 +4,11 @@ import { LogoIcon, MoonIcon, SunIcon } from "./icons";
 interface Props {
   theme: Theme;
   onToggleTheme: () => void;
+  username: string | null;
+  onLogout: () => void;
 }
 
-export function Header({ theme, onToggleTheme }: Props) {
+export function Header({ theme, onToggleTheme, username, onLogout }: Props) {
   return (
     <header className="header">
       <div className="brand">
@@ -25,7 +27,14 @@ export function Header({ theme, onToggleTheme }: Props) {
         >
           {theme === "light" ? <MoonIcon /> : <SunIcon />}
         </button>
-        <span className="avatar">M</span>
+        <button
+          className="avatar"
+          onClick={onLogout}
+          title="Sair"
+          aria-label="Sair da conta"
+        >
+          {username ? username[0].toUpperCase() : "?"}
+        </button>
       </div>
     </header>
   );

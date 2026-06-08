@@ -1,4 +1,3 @@
-/** Saudação dependente do horário, exibida no estado inicial (tela vazia). */
 function greetingByHour(): string {
   const h = new Date().getHours();
   if (h < 12) return "Bom dia";
@@ -6,12 +5,16 @@ function greetingByHour(): string {
   return "Boa noite";
 }
 
-export function Greeting() {
+interface Props {
+  username: string | null;
+}
+
+export function Greeting({ username }: Props) {
   return (
     <div className="greeting">
       <div className="orb" aria-hidden />
       <h1 className="greeting-title">
-        {greetingByHour()}!
+        {greetingByHour()}{username ? `, ${username}` : ""}!
         <br />
         Posso te ajudar com algo?
       </h1>
