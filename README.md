@@ -1,37 +1,49 @@
 # ThinkAI — Chatbot multiusuário (estudo)
 
 Protótipo funcional de um chatbot multiusuário, usando **Google Gemini** como LLM
-e **LangGraph** para orquestração com histórico isolado por sessão.
+e **LangGraph** para orquestração com histórico isolado por sessão, com **autenticação** e persistência em banco de dados.
 
 | Camada    | Stack                                                    | Gerenciador |
 | --------- | -------------------------------------------------------- | ----------- |
 | `web/`    | React + TypeScript + Vite                                | **bun**     |
 | `api/`    | Python + FastAPI + LangGraph + `langchain-google-genai`  | **uv**      |
+| DB        | PostgreSQL (via asyncpg e SQLAlchemy)                    | —           |
 | LLM       | Google Gemini · modelo `gemini-2.0-flash` (API gratuita) | —           |
-| Histórico | LangGraph `SqliteSaver` (`thread_id = session_id`)       | —           |
 
 ---
 
-## Como funciona (arquitetura)
+## Arquitetura e Fluxo
 
-```
-Browser (React/Vite)               FastAPI (api)                 Google Gemini API
-  │  session_id (UUID,                 │                            │
-  │  guardado em localStorage)         │                            │
-  ├── POST /session ──────────────────►│  gera UUID                 │
-  │                                    │                            │
-  ├── POST /chat (SSE) ───────────────►│  LangGraph.astream ───────►│ gemini-2.0-flash
-  │◄───── tokens (text/event-stream) ──┤  thread_id = session_id    │
-  │                                    │                            │
-  │                              SqliteSaver (data/sessions.sqlite)
-  │                              histórico isolado por sessão
+```mermaid
+sequenceDiagram
+    participant B as Browser (React/Vite)
+    participant A as FastAPI (api)
+    participant DB as Banco de Dados
+    participant LLM as Google Gemini API
+
+    B->>A: POST /auth/signup (Cria conta)
+    A->>DB: Salva Usuário
+    A-->>B: Confirmação
+
+    B->>A: POST /auth/signin (Login)
+    A->>DB: Verifica credenciais
+    A-->>B: JWT Access Token
+
+    B->>A: POST /sessions (Cria sessão)
+    Note over B,A: Header: Authorization: Bearer <token>
+    A->>DB: Associa UUID da sessão ao usuário
+    A-->>B: session_id (UUID)
+
+    B->>A: POST /chat (SSE) + Token + session_id
+    A->>DB: Autentica Token e verifica permissão
+    A->>LLM: LangGraph.astream (thread_id = session_id)
+    LLM-->>A: tokens em stream
+    A-->>B: text/event-stream
 ```
 
-- **Multiusuário:** o backend é assíncrono; cada requisição carrega seu `session_id`.
-- **Isolamento:** o `SqliteSaver` do LangGraph guarda o histórico por `thread_id`, então cada
-  resposta volta apenas para a sessão/usuário correto (verificado: a sessão A lembra o nome
-  informado; a sessão B não tem acesso a ele).
-- **Persistência:** o histórico sobrevive a reinícios do servidor (fica em `api/data/sessions.sqlite`).
+- **Autenticação:** A API é protegida por tokens JWT.
+- **Multiusuário:** o backend é assíncrono; cada requisição carrega seu `session_id` e token.
+- **Isolamento:** o checkpointer do LangGraph guarda o histórico por `thread_id` atrelado ao usuário da requisição.
 
 ---
 
@@ -50,7 +62,10 @@ Pré-requisitos: [uv](https://docs.astral.sh/uv/) e [bun](https://bun.sh).
 ```bash
 cd api
 cp .env.example .env
-# edite .env e preencha: GEMINI_API_KEY=sua_chave_aqui
+# edite .env e preencha:
+# GEMINI_API_KEY=sua_chave_aqui
+# SECRET_KEY=sua_chave_secreta (ex: openssl rand -hex 32)
+# DATABASE_URL=postgresql+asyncpg://usuario:senha@localhost:5432/thinkai
 uv sync
 uv run uvicorn app.main:app --reload --port 8000
 ```
@@ -63,8 +78,7 @@ bun install
 bun run dev            # http://localhost:5173
 ```
 
-Abra <http://localhost:5173>, envie uma mensagem e veja a resposta em streaming.
-Use o botão 🌙/☀️ no topo para alternar entre claro e nocturne.
+Abra <http://localhost:5173>, crie uma conta, faça login, envie uma mensagem e veja a resposta em streaming.
 
 ---
 
@@ -73,109 +87,119 @@ Use o botão 🌙/☀️ no topo para alternar entre claro e nocturne.
 ```bash
 # Na raiz do projeto:
 cp .env.example .env
-# edite .env e preencha: GEMINI_API_KEY=sua_chave_aqui
+# edite .env e preencha:
+# GEMINI_API_KEY=sua_chave_aqui
+# SECRET_KEY=sua_chave_secreta_jwt
+# POSTGRES_PASSWORD=senha_segura_do_banco (caso use variáveis separadas)
+# DATABASE_URL=... (se for alterar a padrão do Docker)
 
 docker compose up -d --build
 ```
 
 - Web: <http://localhost> (porta 80)
 - API: <http://localhost:8000>
+- **Swagger UI** (Documentação interativa): <http://localhost:8000/docs>
 
 ---
 
-## Documentação do endpoint (API)
+## Documentação da API
 
 Base URL local: `http://localhost:8000`
 
-### `GET /health`
-Verifica se a API está no ar.
+> Dica: Todas as rotas também podem ser exploradas via Swagger UI em `http://localhost:8000/docs`.
+
+### Autenticação
+
+#### `POST /auth/signup`
+Cria uma nova conta.
+
 ```bash
-curl http://localhost:8000/health
-# {"status":"ok","model":"gemini-2.0-flash"}
+# 1. Criar conta
+curl -X POST http://localhost:8000/auth/signup \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"ana","password":"senha123"}'
 ```
 
-### `POST /session`
-Cria uma nova sessão e devolve um **ID único** (UUID). O frontend guarda esse ID em
-`localStorage` e o reenvia em cada mensagem.
+#### `POST /auth/signin`
+Realiza login e devolve o token JWT.
+
 ```bash
-curl -X POST http://localhost:8000/session
+# 2. Login e pegar token
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/signin \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"ana","password":"senha123"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+```
+
+#### `GET /auth/profile`
+Retorna dados do usuário logado.
+
+```bash
+curl -X GET http://localhost:8000/auth/profile \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Sessões
+
+#### `POST /sessions` (ou `/session` dependendo da implementação)
+Cria uma nova sessão e devolve um **ID único** (UUID).
+
+```bash
+curl -X POST http://localhost:8000/sessions \
+  -H "Authorization: Bearer $TOKEN"
 # {"session_id":"bb98ab08-883c-41fb-a460-b52cbe41dacc"}
 ```
 
-### `POST /chat`
-Envia uma mensagem e recebe a resposta em **streaming (SSE)**. Cada evento é uma linha
-`data: <pedaço de texto>`; o fim é sinalizado por `data: [DONE]`. Quebras de linha vêm
-escapadas como `\n`.
+#### `GET /sessions`
+Lista as sessões ativas do usuário atual.
 
-Corpo (JSON):
-```json
-{ "session_id": "<uuid>", "message": "Sua pergunta aqui" }
-```
-Exemplo:
 ```bash
+curl -X GET http://localhost:8000/sessions \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+#### `DELETE /sessions/{id}`
+Deleta/encerra a sessão com o ID especificado.
+
+```bash
+curl -X DELETE http://localhost:8000/sessions/<uuid> \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Chat (SSE) & Histórico
+
+#### `POST /chat`
+Envia uma mensagem na sessão, usando **streaming (SSE)** e retorna a resposta pedaço a pedaço. O fim é sinalizado por `data: [DONE]`.
+
+```bash
+# 3. Enviar mensagem com token
 curl -N -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"session_id":"<uuid>","message":"Explique o que é uma API REST"}'
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"session_id":"<uuid>","message":"Olá!"}'
 ```
 
-Exemplo no browser (consumindo o stream):
-```js
-const res = await fetch("http://localhost:8000/chat", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ session_id, message: "Olá!" }),
-});
-const reader = res.body.getReader();
-const dec = new TextDecoder();
-let buf = "";
-while (true) {
-  const { value, done } = await reader.read();
-  if (done) break;
-  buf += dec.decode(value, { stream: true });
-  for (const part of buf.split("\n\n")) {
-    if (!part.startsWith("data:")) continue;
-    const txt = part.slice(5).trim();
-    if (txt === "[DONE]") break;
-    console.log(txt.replace(/\\n/g, "\n"));
-  }
-}
-```
+#### `GET /history/{session_id}`
+Retorna as mensagens salvas daquela sessão específica.
 
-### `GET /history/{session_id}`
-Retorna o histórico persistido de uma sessão.
 ```bash
-curl http://localhost:8000/history/<uuid>
-# {"session_id":"...","messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}
+curl -X GET http://localhost:8000/history/<uuid> \
+  -H "Authorization: Bearer $TOKEN"
+# Retorna JSON com o array de mensagens
 ```
-
-> Documentação interativa (Swagger) disponível em `http://localhost:8000/docs`.
 
 ---
 
-## Demonstrando o histórico isolado por sessão
+## Demonstrando o histórico isolado por sessão (com Autenticação)
 
-Cada usuário recebe um `session_id` (UUID) e o histórico é guardado por `thread_id = session_id`
-no `SqliteSaver`. Há duas formas práticas de demonstrar o isolamento:
+Com a API rodando, execute o roteiro pronto que cria duas contas, loga e comprova o isolamento:
 
-### A) Pelo navegador (multiusuário real)
-O `session_id` fica no `localStorage`, então **cada navegador/janela anônima é um usuário diferente**:
-1. Abra <http://localhost:5173> no navegador normal e diga: *"Meu nome é Ana"*.
-2. Abra a mesma URL numa **janela anônima** (ou outro navegador/dispositivo) e pergunte: *"Qual é o meu nome?"*.
-3. A primeira sessão lembra "Ana"; a segunda **não sabe** — históricos isolados.
-4. Recarregar a página mantém a conversa (o ID persiste e o histórico vem de `/history`).
-
-> Para simular vários usuários simultâneos a partir de um mesmo navegador, basta usar abas anônimas
-> distintas — cada contexto anônimo tem seu próprio `localStorage` e, portanto, seu próprio `session_id`.
-
-### B) Por script (reproduzível, via API)
-Com a API rodando, execute o roteiro pronto que cria duas sessões e comprova o isolamento:
 ```bash
 ./scripts/demo_sessions.sh
 # ou apontando para outra URL:
 API_URL=http://SEU_IP_PUBLICO:8000 ./scripts/demo_sessions.sh
 ```
-Saída esperada (resumo): a sessão **A** aprende e lembra o nome/cor; a sessão **B**, com outro
-`session_id`, não tem acesso a esses dados, e `GET /history` mostra os históricos separados.
+
+Saída esperada: a conta/sessão **A** aprende e lembra o fato; a conta/sessão **B** não tem acesso.
 
 ---
 
@@ -197,50 +221,30 @@ Com Gemini, qualquer instância EC2 serve — inclusive o **free tier** (`t2.mic
    sudo usermod -aG docker ubuntu && newgrp docker
    ```
 
-3. **Clonar e subir**
+3. **Clonar e configurar o ambiente**
    ```bash
    git clone <URL_DO_SEU_REPO> thinkai && cd thinkai
 
-   # Crie o .env com sua chave Gemini:
-   echo "GEMINI_API_KEY=sua_chave_aqui" > .env
+   # Crie o .env:
+   cp .env.example .env
+   
+   # Edite o .env para adicionar suas senhas reais:
+   # GEMINI_API_KEY=sua_chave_aqui
+   # SECRET_KEY=chave_secreta_jwt_segura_aqui (ex: openssl rand -hex 32)
+   # DB_PASSWORD=senha_segura_do_banco (se a variável for usada no seu compose)
+   nano .env
+   ```
 
+4. **Ajustar IPs e Subir**
+   ```bash
    # Aponte o frontend para o IP público da EC2:
    sed -i "s#VITE_API_URL: http://localhost:8000#VITE_API_URL: http://SEU_IP_PUBLICO:8000#" docker-compose.yml
 
    docker compose up -d --build
    ```
 
-4. **Acessar (endpoint público)**
+5. **Acessar (endpoint público)**
    - Página: `http://SEU_IP_PUBLICO`
-   - API: `http://SEU_IP_PUBLICO:8000` (ex.: `curl http://SEU_IP_PUBLICO:8000/health`)
+   - API: `http://SEU_IP_PUBLICO:8000` (Swagger: `http://SEU_IP_PUBLICO:8000/docs`)
 
-5. **Economizar:** ao terminar o estudo, **pare** a instância no console
-   (EC2 → Instâncias → *Stop instance*). Instância parada não gera custo de computação.
-   Use um **Elastic IP** se quiser fixar o IP público (grátis enquanto associado a uma instância em execução).
-
----
-
-## Estrutura do projeto
-
-```
-estudo-chatbot/
-├─ api/                  # Backend (uv)
-│  └─ app/
-│     ├─ main.py         # FastAPI: /session, /chat (SSE), /history, /health
-│     ├─ graph.py        # Grafo LangGraph (ChatGoogleGenerativeAI + checkpointer)
-│     ├─ chat.py         # Streaming SSE e leitura de histórico
-│     ├─ config.py       # Settings (.env)
-│     └─ schemas.py
-├─ web/                  # Frontend (bun)
-│  └─ src/
-│     ├─ App.tsx
-│     ├─ api/client.ts   # createSession / streamChat / fetchHistory
-│     ├─ hooks/          # useSession, useChat, useTheme
-│     ├─ components/     # Header, Greeting, PromptCards, ChatInput, MessageList...
-│     └─ styles/         # theme.css (claro/nocturne) + app.css
-├─ scripts/
-│  └─ demo_sessions.sh   # Demonstra isolamento de sessões via API
-├─ .env.example          # Variáveis para docker-compose
-├─ docker-compose.yml    # api + web
-└─ README.md
-```
+6. **Economizar:** ao terminar o estudo, **pare** a instância no console (EC2 → Instâncias → *Stop instance*).

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchHistory, streamChat } from "../api/client";
+import { useAuth } from "./useAuth";
 
 export interface ChatMessage {
   id: string;
@@ -7,25 +8,45 @@ export interface ChatMessage {
   content: string;
 }
 
-export function useChat(sessionId: string | null) {
+export function useChat(sessionId: string | null, onNewSessionCreated?: () => void) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { token } = useAuth();
+  
+  // Controle para saber se já fomos buscar histórico para esse sessionId
+  const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null);
 
   // Recarrega o histórico persistido ao (re)abrir a sessão.
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !token) {
+      setMessages([]);
+      return;
+    }
+    
+    // Evita loop ou flash se for a mesma sessão
+    if (loadedSessionId === sessionId) return;
+
     fetchHistory(sessionId).then((history) => {
-      setMessages(
-        history.map((m, i) => ({ id: `h${i}`, role: m.role, content: m.content })),
-      );
+      if (Array.isArray(history)) {
+        setMessages(
+          history.map((m, i) => ({ id: `h${i}`, role: m.role, content: m.content })),
+        );
+      }
+      setLoadedSessionId(sessionId);
+    }).catch(() => {
+      // Falha ao carregar (provavelmente uma sessão local/nova que ainda não existe no back)
+      setMessages([]);
+      setLoadedSessionId(sessionId);
     });
-  }, [sessionId]);
+  }, [sessionId, token, loadedSessionId]);
 
   const send = useCallback(
     async (text: string) => {
       if (!sessionId || !text.trim() || isStreaming) return;
       setError(null);
+
+      const isFirstMessage = messages.length === 0;
 
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
@@ -41,15 +62,19 @@ export function useChat(sessionId: string | null) {
       setIsStreaming(true);
 
       try {
-        await streamChat(sessionId, text.trim(), (token) => {
+        await streamChat(sessionId, text.trim(), (tokenStr) => {
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === assistantId ? { ...m, content: m.content + token } : m,
+              m.id === assistantId ? { ...m, content: m.content + tokenStr } : m,
             ),
           );
         });
+        
+        if (isFirstMessage && onNewSessionCreated) {
+           onNewSessionCreated();
+        }
       } catch {
-        setError("Não foi possível obter resposta. Verifique se a API e o Ollama estão ativos.");
+        setError("Não foi possível enviar a mensagem.");
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId && m.content === ""
@@ -61,7 +86,7 @@ export function useChat(sessionId: string | null) {
         setIsStreaming(false);
       }
     },
-    [sessionId, isStreaming],
+    [sessionId, isStreaming, messages.length, onNewSessionCreated],
   );
 
   return { messages, isStreaming, error, send };

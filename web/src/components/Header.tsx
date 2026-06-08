@@ -1,15 +1,23 @@
 import type { Theme } from "../hooks/useTheme";
+import { useAuth } from "../hooks/useAuth";
 import { LogoIcon, MoonIcon, SunIcon } from "./icons";
+import { MenuIcon, LogOutIcon } from "./icons_extra";
 
 interface Props {
   theme: Theme;
   onToggleTheme: () => void;
+  onToggleSidebar: () => void;
 }
 
-export function Header({ theme, onToggleTheme }: Props) {
+export function Header({ theme, onToggleTheme, onToggleSidebar }: Props) {
+  const { logout } = useAuth();
+
   return (
     <header className="header">
       <div className="brand">
+        <button className="icon-btn sidebar-toggle" onClick={onToggleSidebar} aria-label="Menu">
+          <MenuIcon />
+        </button>
         <span className="brand-icon">
           <LogoIcon />
         </span>
@@ -25,7 +33,14 @@ export function Header({ theme, onToggleTheme }: Props) {
         >
           {theme === "light" ? <MoonIcon /> : <SunIcon />}
         </button>
-        <span className="avatar">M</span>
+        <button
+          className="icon-btn"
+          onClick={logout}
+          aria-label="Sair"
+          title="Sair da conta"
+        >
+          <LogOutIcon />
+        </button>
       </div>
     </header>
   );
