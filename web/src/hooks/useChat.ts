@@ -1,30 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchMessages, sendMessage } from "../api/client";
+import { fetchMessages, sendMessage, type ChatMessage } from "../api/client";
 
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
+export type { ChatMessage };
 
-export function useChat(token: string | null, sessionId: string | null) {
+export function useChat(sessionId: string | null) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token || !sessionId) {
-      setMessages([]);
-      return;
-    }
-    fetchMessages(token, sessionId).then((history) => {
-      setMessages(history.map((m) => ({ id: m.id, role: m.role, content: m.content })));
-    });
-  }, [token, sessionId]);
+    if (!sessionId) { setMessages([]); return; }
+    fetchMessages(sessionId).then((history) => setMessages(history)).catch(() => setMessages([]));
+  }, [sessionId]);
 
   const send = useCallback(
     async (text: string) => {
-      if (!token || !sessionId || !text.trim() || isStreaming) return;
+      if (!sessionId || !text.trim() || isStreaming) return;
       setError(null);
 
       const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content: text.trim() };
@@ -33,7 +24,7 @@ export function useChat(token: string | null, sessionId: string | null) {
       setIsStreaming(true);
 
       try {
-        await sendMessage(token, sessionId, text.trim(), (chunk) => {
+        await sendMessage(sessionId, text.trim(), (chunk) => {
           setMessages((prev) =>
             prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + chunk } : m)),
           );
@@ -51,7 +42,7 @@ export function useChat(token: string | null, sessionId: string | null) {
         setIsStreaming(false);
       }
     },
-    [token, sessionId, isStreaming],
+    [sessionId, isStreaming],
   );
 
   return { messages, isStreaming, error, send };

@@ -1,87 +1,155 @@
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const TOKEN_STORAGE_KEY = "thinkai.jwt";
 
-function authHeader(token: string) {
-  return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
-}
-
-// ---------- Auth ----------
-
-export async function signin(username: string, password: string): Promise<string> {
-  const res = await fetch(`${API_URL}/auth/signin`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
-  if (!res.ok) throw new Error("Usuário ou senha inválidos");
-  const data = (await res.json()) as { access_token: string };
-  return data.access_token;
-}
-
-export async function signup(username: string, password: string): Promise<void> {
-  const res = await fetch(`${API_URL}/auth/signup`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { detail?: string };
-    throw new Error(err.detail ?? "Erro ao criar conta");
-  }
-}
-
-// ---------- Sessions ----------
-
-export interface SessionInfo {
+export interface AuthUser {
   id: string;
-  title: string | null;
+  username: string;
   created_at: string;
 }
 
-export async function createSession(token: string): Promise<SessionInfo> {
-  const res = await fetch(`${API_URL}/sessions`, {
-    method: "POST",
-    headers: authHeader(token),
-  });
-  if (!res.ok) throw new Error("Falha ao criar sessão");
-  return res.json() as Promise<SessionInfo>;
+export interface SessionSummary {
+  id: string;
+  title?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
-export async function listSessions(token: string): Promise<SessionInfo[]> {
-  const res = await fetch(`${API_URL}/sessions`, { headers: authHeader(token) });
-  if (!res.ok) return [];
-  return res.json() as Promise<SessionInfo[]>;
-}
-
-// ---------- Messages ----------
-
-export interface HistoryMessage {
+export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
 }
 
-export async function fetchMessages(token: string, sessionId: string): Promise<HistoryMessage[]> {
-  const res = await fetch(`${API_URL}/sessions/${sessionId}/messages`, {
-    headers: authHeader(token),
-  });
-  if (!res.ok) return [];
-  return res.json() as Promise<HistoryMessage[]>;
+interface ApiErrorPayload {
+  detail?: string;
+  [key: string]: unknown;
+}
+
+export class ApiError extends Error {
+  status: number;
+  payload?: ApiErrorPayload;
+
+  constructor(status: number, message: string, payload?: ApiErrorPayload) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+function readToken(): string | null {
+  return localStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+export function getAuthToken(): string | null {
+  return readToken();
+}
+
+export function setAuthToken(token: string): void {
+  localStorage.setItem(TOKEN_STORAGE_KEY, token);
+}
+
+export function logout(): void {
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+async function readErrorPayload(res: Response): Promise<ApiErrorPayload | undefined> {
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return undefined;
+  try {
+    return (await res.json()) as ApiErrorPayload;
+  } catch {
+    return undefined;
+  }
+}
+
+async function req<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
+  const headers = new Headers(init.headers);
+  const token = auth ? readToken() : null;
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+
+  if (!res.ok) {
+    const payload = await readErrorPayload(res);
+    if (res.status === 401) logout();
+    throw new ApiError(res.status, payload?.detail ?? `Erro ${res.status}`, payload);
+  }
+
+  if (res.status === 204) return undefined as T;
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return undefined as T;
+  return (await res.json()) as T;
+}
+
+// ---------- Auth ----------
+
+export async function signup(username: string, password: string): Promise<AuthUser> {
+  return req<AuthUser>("/auth/signup", { method: "POST", body: JSON.stringify({ username, password }) }, false);
+}
+
+export async function signin(username: string, password: string): Promise<string> {
+  const data = await req<{ access_token: string }>(
+    "/auth/signin",
+    { method: "POST", body: JSON.stringify({ username, password }) },
+    false,
+  );
+  setAuthToken(data.access_token);
+  return data.access_token;
+}
+
+export async function getProfile(): Promise<AuthUser> {
+  return req<AuthUser>("/auth/profile");
+}
+
+// ---------- Sessions ----------
+
+export async function listSessions(): Promise<SessionSummary[]> {
+  const data = await req<unknown>("/sessions");
+  if (Array.isArray(data)) return data as SessionSummary[];
+  return [];
+}
+
+export async function createSession(): Promise<string> {
+  const data = await req<{ id: string }>("/sessions", { method: "POST" });
+  return data.id;
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  await req<void>(`/sessions/${sessionId}`, { method: "DELETE" });
+}
+
+// ---------- Messages ----------
+
+export async function fetchMessages(sessionId: string): Promise<ChatMessage[]> {
+  try {
+    const data = await req<unknown>(`/sessions/${sessionId}/messages`);
+    if (Array.isArray(data)) return data as ChatMessage[];
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 export async function sendMessage(
-  token: string,
   sessionId: string,
   content: string,
-  onToken: (token: string) => void,
+  onToken: (chunk: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  const token = readToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   const res = await fetch(`${API_URL}/sessions/${sessionId}/messages`, {
     method: "POST",
-    headers: authHeader(token),
+    headers,
     body: JSON.stringify({ content }),
     signal,
   });
-  if (!res.ok || !res.body) throw new Error("Falha ao enviar mensagem");
+
+  if (!res.ok || !res.body) throw new ApiError(res.status, "Falha ao enviar mensagem");
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

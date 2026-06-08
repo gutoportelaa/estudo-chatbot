@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # Google Gemini / ADK
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.5-flash"
 
     # Auth / JWT
     secret_key: str = "change-me-in-production"
