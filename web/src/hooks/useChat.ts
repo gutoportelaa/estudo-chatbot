@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchMessages, sendMessage, type ChatMessage } from "../api/client";
 
+export type { ChatMessage };
+
 export function useChat(sessionId: string | null) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);

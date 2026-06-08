@@ -75,3 +75,5 @@ export function useAuth() {
 
   return { user, isLoading, error, isAuthenticated: Boolean(user), login, register, logout };
 }
+
+export type AuthState = ReturnType<typeof useAuth>;
