@@ -1,10 +1,10 @@
 import { RefreshIcon } from "./icons";
 
 const PROMPTS = [
-  "Get fresh perspectives on tricky problems",
-  "Brainstorm creative ideas",
-  "Rewrite message for maximum impact",
-  "Summarize key points",
+  "Ter novas perspectivas sobre problemas difíceis",
+  "Gerar ideias criativas",
+  "Reescrever mensagem para maior impacto",
+  "Resumir os pontos principais",
 ];
 
 interface Props {
@@ -23,7 +23,7 @@ export function PromptCards({ onPick }: Props) {
       </div>
       <button className="refresh-prompts" type="button">
         <RefreshIcon />
-        Refresh prompts
+        Atualizar sugestões
       </button>
     </div>
   );

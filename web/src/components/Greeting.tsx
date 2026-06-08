@@ -1,9 +1,9 @@
 /** Saudação dependente do horário, exibida no estado inicial (tela vazia). */
 function greetingByHour(): string {
   const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
+  if (h < 12) return "Bom dia";
+  if (h < 18) return "Boa tarde";
+  return "Boa noite";
 }
 
 export function Greeting() {
@@ -11,12 +11,12 @@ export function Greeting() {
     <div className="greeting">
       <div className="orb" aria-hidden />
       <h1 className="greeting-title">
-        {greetingByHour()}, Milovan
+        {greetingByHour()}!
         <br />
-        Can I help you with anything?
+        Posso te ajudar com algo?
       </h1>
       <p className="greeting-subtitle">
-        Choose a prompt below or write your own to start chatting with ThinkAI
+        Escolha uma sugestão abaixo ou escreva a sua para começar a conversar com o ThinkAI
       </p>
     </div>
   );
