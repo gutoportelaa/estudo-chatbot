@@ -40,9 +40,9 @@ export default function App() {
             disabled={isStreaming || !sessionId}
           />
           <div className="composer-footer">
-            <span>ThinkAI can make mistakes. Please double-check responses.</span>
+            <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>
             <span className="hint">
-              Use <kbd>shift + return</kbd> for new line
+              Use <kbd>shift + return</kbd> para nova linha
             </span>
           </div>
         </footer>

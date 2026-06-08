@@ -49,7 +49,7 @@ export function useChat(sessionId: string | null) {
           );
         });
       } catch {
-        setError("Não foi possível obter resposta. Verifique se a API e o Ollama estão ativos.");
+        setError("Não foi possível obter resposta. Verifique se a API está ativa.");
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId && m.content === ""
