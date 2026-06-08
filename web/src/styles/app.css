@@ -94,6 +94,123 @@
   text-align: center;
 }
 
+.auth-card {
+  width: min(100%, 420px);
+  margin: 0 auto;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.94) 100%);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+  text-align: left;
+}
+
+:root[data-theme="nocturne"] .auth-card {
+  background: linear-gradient(180deg, rgba(38, 42, 40, 0.88) 0%, rgba(31, 34, 32, 0.96) 100%);
+}
+
+.auth-mode {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.auth-tab {
+  appearance: none;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.auth-tab:hover {
+  color: var(--text);
+}
+
+.auth-tab.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+.auth-tab:active {
+  transform: translateY(1px);
+}
+
+.auth-field {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.auth-field span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.auth-field input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 13px 14px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.auth-field input::placeholder {
+  color: var(--text-faint);
+}
+
+.auth-field input:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.auth-error {
+  margin: 2px 0 12px;
+  color: #b23a3a;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.auth-submit {
+  width: 100%;
+  min-height: 44px;
+  margin-left: 0;
+  border-radius: 14px;
+  font-weight: 700;
+  box-shadow: 0 10px 20px rgba(47, 143, 78, 0.2);
+}
+
+.auth-submit:hover:not(:disabled) {
+  filter: brightness(1.02);
+}
+
+.auth-submit:focus-visible,
+.auth-tab:focus-visible,
+.auth-field input:focus-visible,
+.refresh-prompts:focus-visible,
+.icon-btn:focus-visible,
+.send-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, white);
+  outline-offset: 2px;
+}
+
 /* Orbe com gradiente verde (referência) */
 .orb {
   width: 56px;
@@ -353,5 +470,14 @@
   }
   .greeting-title {
     font-size: 22px;
+  }
+
+  .auth-card {
+    width: 100%;
+    padding: 16px;
+  }
+
+  .auth-mode {
+    grid-template-columns: 1fr;
   }
 }

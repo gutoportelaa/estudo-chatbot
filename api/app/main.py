@@ -1,7 +1,4 @@
-"""Aplicação FastAPI: inicialização do banco e rotas base.
-
-As rotas de autenticação, sessões e chat serão adicionadas nas issues seguintes.
-"""
+"""Aplicação FastAPI: inicialização do banco e montagem das rotas."""
 
 from contextlib import asynccontextmanager
 
@@ -12,6 +9,7 @@ from . import models  # noqa: F401 — registra os modelos antes do create_all
 from .config import get_settings
 from .database import Base, engine
 from .routers import auth as auth_router
+from .routers import chat as chat_router
 
 
 @asynccontextmanager
@@ -35,6 +33,7 @@ app.add_middleware(
 
 
 app.include_router(auth_router.router)
+app.include_router(chat_router.router)
 
 
 @app.get("/health")

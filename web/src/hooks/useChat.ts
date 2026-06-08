@@ -14,12 +14,20 @@ export function useChat(sessionId: string | null) {
 
   // Recarrega o histórico persistido ao (re)abrir a sessão.
   useEffect(() => {
-    if (!sessionId) return;
-    fetchHistory(sessionId).then((history) => {
-      setMessages(
-        history.map((m, i) => ({ id: `h${i}`, role: m.role, content: m.content })),
-      );
-    });
+    if (!sessionId) {
+      setMessages([]);
+      return;
+    }
+
+    fetchHistory(sessionId)
+      .then((history) => {
+        setMessages(
+          history.map((m, i) => ({ id: `h${i}`, role: m.role, content: m.content })),
+        );
+      })
+      .catch(() => {
+        setMessages([]);
+      });
   }, [sessionId]);
 
   const send = useCallback(
