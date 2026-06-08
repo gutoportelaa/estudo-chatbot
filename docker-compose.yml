@@ -29,6 +29,7 @@ services:
       GEMINI_MODEL: gemini-2.0-flash
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       CORS_ORIGINS: "*"
+      SYSTEM_PROMPT: ${SYSTEM_PROMPT:-Você é o ThinkAI, um assistente prestativo, claro e conciso. Responda no mesmo idioma da pergunta.}
     ports:
       - "8000:8000"
     restart: unless-stopped
