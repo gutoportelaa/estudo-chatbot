@@ -15,24 +15,34 @@ jobs:
       - name: Aguardar SSH da EC2 ficar disponível
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
-          MAX_ATTEMPTS: 20
+          MAX_ATTEMPTS: 8
           PROBE_TIMEOUT: 5
-          SLEEP_SECONDS: 15
+          SLEEP_SECONDS: 10
         run: |
-          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
-            if timeout "$PROBE_TIMEOUT" bash -c "echo > /dev/tcp/$EC2_HOST/22" 2>/dev/null; then
-              echo "SSH disponível na tentativa $attempt."
-              exit 0
-            fi
+          python3 - <<'PY'
+          import os
+          import socket
+          import sys
+          import time
 
-            echo "Aguardando SSH da EC2... tentativa $attempt/$MAX_ATTEMPTS"
-            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
-              sleep "$SLEEP_SECONDS"
-            fi
-          done
+          host = os.environ["EC2_HOST"]
+          max_attempts = int(os.environ["MAX_ATTEMPTS"])
+          probe_timeout = int(os.environ["PROBE_TIMEOUT"])
+          sleep_seconds = int(os.environ["SLEEP_SECONDS"])
 
-          echo "::error::Não foi possível acessar $EC2_HOST:22 após várias tentativas."
-          exit 1
+          for attempt in range(1, max_attempts + 1):
+              try:
+                  with socket.create_connection((host, 22), timeout=probe_timeout):
+                      print(f"SSH disponível na tentativa {attempt}.")
+                      sys.exit(0)
+              except OSError:
+                  print(f"Aguardando SSH da EC2... tentativa {attempt}/{max_attempts}")
+                  if attempt < max_attempts:
+                      time.sleep(sleep_seconds)
+
+          print(f"::error::Não foi possível acessar {host}:22 após várias tentativas.")
+          sys.exit(1)
+          PY
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
