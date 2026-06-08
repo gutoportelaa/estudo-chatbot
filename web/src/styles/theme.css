@@ -19,6 +19,9 @@
   --user-bubble: #2f8f4e;
   --user-bubble-text: #ffffff;
   --assistant-bubble: #f4f6f5;
+  --sidebar-bg: #f0f2f1;
+  --sidebar-item-hover: #e4e8e6;
+  --sidebar-item-active: #dceee3;
 }
 
 :root[data-theme="nocturne"] {
@@ -39,6 +42,9 @@
   --user-bubble: #3a9c5c;
   --user-bubble-text: #ffffff;
   --assistant-bubble: #2c312e;
+  --sidebar-bg: #1a1e1c;
+  --sidebar-item-hover: #252a27;
+  --sidebar-item-active: #243028;
 }
 
 * {

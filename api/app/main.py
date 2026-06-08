@@ -1,7 +1,4 @@
-"""Aplicação FastAPI: inicialização do banco e rotas base.
-
-As rotas de autenticação, sessões e chat serão adicionadas nas issues seguintes.
-"""
+"""Aplicação FastAPI: inicialização do banco e montagem das rotas."""
 
 from contextlib import asynccontextmanager
 

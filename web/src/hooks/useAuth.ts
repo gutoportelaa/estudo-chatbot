@@ -1,41 +1,79 @@
-import { useState } from "react";
-import { signin, signup } from "../api/client";
+import { useCallback, useEffect, useState } from "react";
+import { getAuthToken, getProfile, logout as clearAuth, signin, signup, type AuthUser } from "../api/client";
 
-const TOKEN_KEY = "thinkai.token";
-const USERNAME_KEY = "thinkai.username";
+export function useAuth() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-export interface AuthState {
-  token: string | null;
-  username: string | null;
-  login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string) => Promise<void>;
-  logout: () => void;
+  useEffect(() => {
+    let active = true;
+
+    async function bootstrap() {
+      const token = getAuthToken();
+      if (!token) {
+        if (active) setIsLoading(false);
+        return;
+      }
+      try {
+        const profile = await getProfile();
+        if (active) { setUser(profile); setError(null); }
+      } catch {
+        clearAuth();
+        if (active) setUser(null);
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    }
+
+    void bootstrap();
+    return () => { active = false; };
+  }, []);
+
+  const login = useCallback(async (username: string, password: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await signin(username, password);
+      const profile = await getProfile();
+      setUser(profile);
+      return profile;
+    } catch (err) {
+      clearAuth();
+      setUser(null);
+      setError(err instanceof Error ? err.message : "Falha ao autenticar");
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const register = useCallback(async (username: string, password: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await signup(username, password);
+      await signin(username, password);
+      const profile = await getProfile();
+      setUser(profile);
+      return profile;
+    } catch (err) {
+      clearAuth();
+      setUser(null);
+      setError(err instanceof Error ? err.message : "Falha ao cadastrar");
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const logout = useCallback(() => {
+    clearAuth();
+    setUser(null);
+    setError(null);
+  }, []);
+
+  return { user, isLoading, error, isAuthenticated: Boolean(user), login, register, logout };
 }
 
-export function useAuth(): AuthState {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
-  const [username, setUsername] = useState<string | null>(() => localStorage.getItem(USERNAME_KEY));
-
-  const login = async (user: string, password: string) => {
-    const t = await signin(user, password);
-    localStorage.setItem(TOKEN_KEY, t);
-    localStorage.setItem(USERNAME_KEY, user);
-    setToken(t);
-    setUsername(user);
-  };
-
-  const register = async (user: string, password: string) => {
-    await signup(user, password);
-    await login(user, password);
-  };
-
-  const logout = () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USERNAME_KEY);
-    localStorage.removeItem("thinkai.session_id");
-    setToken(null);
-    setUsername(null);
-  };
-
-  return { token, username, login, register, logout };
-}
+export type AuthState = ReturnType<typeof useAuth>;
