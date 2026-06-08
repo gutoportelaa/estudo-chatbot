@@ -15,18 +15,20 @@ jobs:
       - name: Aguardar SSH da EC2 ficar disponível
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
+          MAX_ATTEMPTS: 20
+          PROBE_TIMEOUT: 5
+          SLEEP_SECONDS: 15
         run: |
-          for attempt in {1..20}; do
-            if timeout 5 bash -c "echo > /dev/tcp/$EC2_HOST/22" 2>/dev/null; then
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            if timeout "$PROBE_TIMEOUT" bash -c "echo > /dev/tcp/$EC2_HOST/22" 2>/dev/null; then
               echo "SSH disponível na tentativa $attempt."
               exit 0
             fi
 
-            echo "Aguardando SSH da EC2... tentativa $attempt/20"
-            if [ "$attempt" -eq 20 ]; then
-              break
+            echo "Aguardando SSH da EC2... tentativa $attempt/$MAX_ATTEMPTS"
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              sleep "$SLEEP_SECONDS"
             fi
-            sleep 15
           done
 
           echo "::error::Não foi possível acessar $EC2_HOST:22 após várias tentativas."
