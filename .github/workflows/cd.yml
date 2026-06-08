@@ -12,12 +12,31 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
     steps:
+      - name: Aguardar SSH da EC2 ficar disponível
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          for attempt in {1..40}; do
+            if nc -z -w5 "$EC2_HOST" 22; then
+              echo "SSH disponível na tentativa $attempt."
+              exit 0
+            fi
+
+            echo "Aguardando SSH da EC2... tentativa $attempt/40"
+            sleep 15
+          done
+
+          echo "::error::Não foi possível acessar $EC2_HOST:22 após várias tentativas."
+          exit 1
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          timeout: 2m
+          command_timeout: 15m
           script: |
             cd ~/estudo-chatbot
             git pull origin main
