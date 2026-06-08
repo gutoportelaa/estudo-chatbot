@@ -26,9 +26,13 @@ jobs:
           import time
 
           host = os.environ["EC2_HOST"]
-          max_attempts = int(os.environ["MAX_ATTEMPTS"])
-          probe_timeout = int(os.environ["PROBE_TIMEOUT"])
-          sleep_seconds = int(os.environ["SLEEP_SECONDS"])
+          try:
+              max_attempts = int(os.environ["MAX_ATTEMPTS"])
+              probe_timeout = int(os.environ["PROBE_TIMEOUT"])
+              sleep_seconds = int(os.environ["SLEEP_SECONDS"])
+          except ValueError as exc:
+              print(f"::error::Valor inválido em variável de ambiente numérica: {exc}")
+              sys.exit(1)
           last_error = None
 
           for attempt in range(1, max_attempts + 1):
