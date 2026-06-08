@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchMessages, sendMessage, type ChatMessage } from "../api/client";
 
+function uuid(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 export type { ChatMessage };
 
 export function useChat(sessionId: string | null) {
@@ -18,8 +26,8 @@ export function useChat(sessionId: string | null) {
       if (!sessionId || !text.trim() || isStreaming) return;
       setError(null);
 
-      const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content: text.trim() };
-      const assistantId = crypto.randomUUID();
+      const userMsg: ChatMessage = { id: uuid(), role: "user", content: text.trim() };
+      const assistantId = uuid();
       setMessages((prev) => [...prev, userMsg, { id: assistantId, role: "assistant", content: "" }]);
       setIsStreaming(true);
 
