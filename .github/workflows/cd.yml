@@ -23,6 +23,9 @@ jobs:
             fi
 
             echo "Aguardando SSH da EC2... tentativa $attempt/20"
+            if [ "$attempt" -eq 20 ]; then
+              break
+            fi
             sleep 15
           done
 
