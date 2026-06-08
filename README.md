@@ -1,5 +1,7 @@
 # ThinkAI — Chatbot multiusuário (estudo)
 
+[![CI](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/ci.yml)
+
 Protótipo funcional de um chatbot multiusuário, usando **Google Gemini** como LLM
 e **LangGraph** para orquestração com histórico isolado por sessão.
 
@@ -179,44 +181,106 @@ Saída esperada (resumo): a sessão **A** aprende e lembra o nome/cor; a sessão
 
 ---
 
-## Deploy na AWS EC2 (público)
+## Deploy na AWS EC2 (público) - Guia Passo a Passo
 
-Com Gemini, qualquer instância EC2 serve — inclusive o **free tier** (`t2.micro`, 1 GB RAM).
+Como este pode ser seu primeiro contato com a infraestrutura da AWS, aqui está um guia didático e detalhado de como subir a aplicação usando o nível gratuito (Free Tier).
 
-### Passo a passo
+### Passo 1: Criando a Instância EC2 (O seu "Computador na Nuvem")
 
-1. **Criar a instância**
-   - AMI: Ubuntu Server 24.04 LTS · Tipo: **t2.micro** (free tier) ou superior · Disco: 8 GB gp3.
-   - Crie/baixe um **key pair** (`.pem`).
-   - **Security Group** — libere: `22` (SSH, só seu IP), `80` (HTTP), `8000` (API).
+1. Acesse o [Console da AWS](https://console.aws.amazon.com/) e faça login.
+2. Na barra de pesquisa superior, digite **EC2** e clique no primeiro resultado.
+3. No painel esquerdo ou na tela principal, clique no botão laranja **Launch instance** (Executar instância).
+4. **Name and tags:** Dê um nome para o seu servidor, por exemplo: `thinkai-server`.
+5. **Application and OS Images (Amazon Machine Image):** 
+   - Selecione **Ubuntu**.
+   - Na lista, escolha a versão **Ubuntu Server 24.04 LTS (HVM)** (verifique se tem a tag *Free tier eligible*).
+6. **Instance type:** Selecione **t2.micro** (também *Free tier eligible*, possui 1 vCPU e 1 GB de RAM).
+7. **Key pair (login):** 
+   - Clique em **Create new key pair**.
+   - Nome: `thinkai-key` (ou o que preferir).
+   - Tipo: **RSA**, Formato: **.pem** (para Mac/Linux) ou **.ppk** (para Windows usando PuTTY).
+   - Clique em **Create key pair**. O download do arquivo começará automaticamente. **Guarde este arquivo**, ele é sua única forma de acessar o servidor!
+8. **Network settings:**
+   - Marque a caixa **Allow SSH traffic from** e selecione **My IP** (Isso garante que apenas o seu computador atual pode acessar via terminal).
+   - Marque a caixa **Allow HTTP traffic from the internet** (Para que qualquer pessoa consiga acessar a porta 80 e ver o site).
+9. **Configure storage:** Pode deixar o padrão de **8 GiB** (gp3). O free tier permite até 30 GB, se quiser aumentar.
+10. Clique no botão laranja **Launch instance** no canto inferior direito.
 
-2. **Conectar e instalar Docker**
+### Passo 2: Configurando as Portas Extras (Security Group)
+
+Nossa aplicação precisa da porta **8000** aberta para a comunicação da API com o Frontend.
+
+1. No console do EC2, vá em **Instances** (no menu lateral esquerdo) e clique no ID da sua nova instância.
+2. Na aba **Security**, na parte inferior da tela, clique no link abaixo de **Security groups** (ex: `sg-0abcd1234...`).
+3. Na aba **Inbound rules** (Regras de entrada), clique em **Edit inbound rules**.
+4. Clique em **Add rule** no final da lista:
+   - **Type:** Custom TCP
+   - **Port range:** 8000
+   - **Source:** Anywhere-IPv4 (`0.0.0.0/0`)
+   - **Description:** API Backend
+5. Clique em **Save rules**.
+
+### Passo 3: Conectando no Servidor
+
+Agora vamos acessar o terminal do seu servidor na AWS.
+
+1. Volte na tela de **Instances**, selecione sua instância e copie o **Public IPv4 address** (ex: `15.228.x.x`).
+2. Abra o terminal (no Linux/Mac) ou o PowerShell (no Windows).
+3. Navegue até a pasta onde salvou o arquivo `.pem` do Passo 1.
+4. (Apenas Linux/Mac) Ajuste a permissão da chave para que não seja pública:
    ```bash
-   ssh -i sua-chave.pem ubuntu@SEU_IP_PUBLICO
-   sudo apt update && sudo apt install -y docker.io docker-compose-plugin git
-   sudo usermod -aG docker ubuntu && newgrp docker
+   chmod 400 thinkai-key.pem
    ```
-
-3. **Clonar e subir**
+5. Conecte-se:
    ```bash
-   git clone <URL_DO_SEU_REPO> thinkai && cd thinkai
-
-   # Crie o .env com sua chave Gemini:
-   echo "GEMINI_API_KEY=sua_chave_aqui" > .env
-
-   # Aponte o frontend para o IP público da EC2:
-   sed -i "s#VITE_API_URL: http://localhost:8000#VITE_API_URL: http://SEU_IP_PUBLICO:8000#" docker-compose.yml
-
-   docker compose up -d --build
+   ssh -i "thinkai-key.pem" ubuntu@SEU_IP_PUBLICO
    ```
+   *Se perguntar se tem certeza que deseja continuar conectando, digite `yes` e dê Enter.*
 
-4. **Acessar (endpoint público)**
-   - Página: `http://SEU_IP_PUBLICO`
-   - API: `http://SEU_IP_PUBLICO:8000` (ex.: `curl http://SEU_IP_PUBLICO:8000/health`)
+### Passo 4: Instalando Docker e Baixando o Projeto
 
-5. **Economizar:** ao terminar o estudo, **pare** a instância no console
-   (EC2 → Instâncias → *Stop instance*). Instância parada não gera custo de computação.
-   Use um **Elastic IP** se quiser fixar o IP público (grátis enquanto associado a uma instância em execução).
+Dentro do terminal da sua EC2, execute os comandos abaixo, um por um:
+
+```bash
+# Atualiza os pacotes e instala o Docker e o Git
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
+
+# Dá permissão para o usuário 'ubuntu' rodar o Docker sem precisar de 'sudo'
+sudo usermod -aG docker ubuntu && newgrp docker
+
+# Baixa o código do projeto
+git clone https://github.com/gutoportelaa/estudo-chatbot.git && cd estudo-chatbot
+```
+
+### Passo 5: Configurando Senhas e Rodando (Deploy)
+
+Vamos criar o arquivo de variáveis de ambiente (`.env`) e iniciar os containers:
+
+```bash
+# 1. Crie o arquivo .env e adicione a chave do Gemini
+echo 'GEMINI_API_KEY=sua_chave_aqui' > .env
+
+# 2. Gere uma chave secreta para a autenticação JWT
+echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
+
+# 3. Defina uma senha segura para o banco de dados
+echo 'DB_PASSWORD=senha_super_segura_123' >> .env
+
+# 4. Aponte o frontend para o IP público da sua EC2
+sed -i 's#http://localhost:8000#http://SEU_IP_PUBLICO:8000#' docker-compose.yml
+
+# 5. Inicie a aplicação (vai baixar as imagens, construir e rodar em segundo plano)
+docker compose up -d --build
+```
+
+### Passo 6: Acessando e Testando
+
+Após o comando anterior terminar, sua aplicação está no ar!
+
+- **Acesse pelo navegador:** `http://SEU_IP_PUBLICO` (deve abrir a tela de login).
+- **Teste a API (Healthcheck):** Pode ser feito no seu terminal local ou abrindo `http://SEU_IP_PUBLICO:8000/health` no navegador. Deve retornar `{"status":"ok"}`.
+
+> **Dica de Economia:** Quando não estiver mais estudando ou usando, vá no console da AWS, selecione a instância e clique em **Instance state -> Stop instance**. Instâncias paradas não cobram por hora de uso (apenas centavos pelo armazenamento do disco). Lembre-se que, ao iniciar de novo (Start instance), **o IP público mudará**, então você precisará atualizar o IP no `docker-compose.yml` e rodar `docker compose up -d` novamente. Caso queira fixar o IP público para não mudar nunca mais, você pode usar a funcionalidade de **Elastic IP** (que é gratuita se associada a uma instância em execução).
 
 ---
 
