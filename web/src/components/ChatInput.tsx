@@ -20,7 +20,6 @@ export function ChatInput({ onSend, disabled, value, onChange }: Props) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    // Enter envia; Shift+Enter quebra linha.
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
@@ -38,7 +37,7 @@ export function ChatInput({ onSend, disabled, value, onChange }: Props) {
       <textarea
         ref={taRef}
         className="chat-textarea"
-        placeholder="How can ThinkAI help you today?"
+        placeholder="Como o ThinkAI pode te ajudar hoje?"
         value={value}
         onChange={autoGrow}
         onKeyDown={onKeyDown}

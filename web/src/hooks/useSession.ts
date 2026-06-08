@@ -3,28 +3,30 @@ import { createSession } from "../api/client";
 
 const STORAGE_KEY = "thinkai.session_id";
 
-/** Cria ou recupera o ID de sessão do usuário, persistido em localStorage. */
-export function useSession(): string | null {
-  const [sessionId, setSessionId] = useState<string | null>(null);
+export function useSession(token: string | null): string | null {
+  const [sessionId, setSessionId] = useState<string | null>(() =>
+    token ? localStorage.getItem(STORAGE_KEY) : null,
+  );
 
   useEffect(() => {
+    if (!token) {
+      setSessionId(null);
+      return;
+    }
+
     const existing = localStorage.getItem(STORAGE_KEY);
     if (existing) {
       setSessionId(existing);
       return;
     }
-    createSession()
-      .then((id) => {
-        localStorage.setItem(STORAGE_KEY, id);
-        setSessionId(id);
+
+    createSession(token)
+      .then((session) => {
+        localStorage.setItem(STORAGE_KEY, session.id);
+        setSessionId(session.id);
       })
-      .catch(() => {
-        // Fallback offline: gera um UUID local caso a API esteja indisponível.
-        const id = crypto.randomUUID();
-        localStorage.setItem(STORAGE_KEY, id);
-        setSessionId(id);
-      });
-  }, []);
+      .catch(() => null);
+  }, [token]);
 
   return sessionId;
 }
