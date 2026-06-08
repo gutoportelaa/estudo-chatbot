@@ -6,6 +6,7 @@
 .langgraph_api/
 
 *.png
+!docs/*.png
 
 # Python / uv (backend)
 api/.venv/
