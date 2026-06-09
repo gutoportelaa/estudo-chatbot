@@ -1,3 +1,5 @@
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../hooks/useChat";
 
 export function Message({ message }: { message: ChatMessage }) {
@@ -10,7 +12,17 @@ export function Message({ message }: { message: ChatMessage }) {
         </span>
       )}
       <div className="message-bubble">
-        {message.content || <span className="typing-dots"><i /><i /><i /></span>}
+        {!message.content ? (
+          <span className="typing-dots"><i /><i /><i /></span>
+        ) : isUser ? (
+          message.content
+        ) : (
+          <div className="md">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {message.content}
+            </ReactMarkdown>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -11,6 +11,8 @@ jobs:
     name: Deploy na EC2
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
+    env:
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
@@ -18,8 +20,11 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: GHCR_TOKEN
           script: |
+            echo $GHCR_TOKEN | docker login ghcr.io -u gutoportelaa --password-stdin
             cd ~/estudo-chatbot
             git pull origin main
-            docker compose up -d --build
+            docker compose pull api web
+            docker compose up -d
             curl -sf http://localhost:8000/health || (docker compose logs api && exit 1)

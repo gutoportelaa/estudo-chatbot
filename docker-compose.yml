@@ -19,6 +19,7 @@ services:
 
   api:
     build: ./api
+    image: ghcr.io/gutoportelaa/estudo-chatbot-api:latest
     container_name: thinkai-api
     depends_on:
       db:
@@ -39,6 +40,7 @@ services:
       context: ./web
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    image: ghcr.io/gutoportelaa/estudo-chatbot-web:latest
     container_name: thinkai-web
     depends_on:
       - api
