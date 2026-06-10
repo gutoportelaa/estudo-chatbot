@@ -80,12 +80,13 @@ async def stream_openai_compatible(
     full_text = ""
 
     try:
-        async with client.chat.completions.stream(
-            model=model, messages=messages
-        ) as stream:
-            async for text in stream.text_stream:
-                full_text += text
-                yield f"data: {text.replace(chr(10), chr(92) + 'n')}\n\n"
+        async for chunk in await client.chat.completions.create(
+            model=model, messages=messages, stream=True
+        ):
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                full_text += delta
+                yield f"data: {delta.replace(chr(10), chr(92) + 'n')}\n\n"
     except Exception as exc:
         yield f"data: [ERROR] {str(exc)[:300]}\n\n"
         return

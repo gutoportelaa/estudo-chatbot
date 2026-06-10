@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 // import { ImageIcon, PaperclipIcon, SendIcon } from "./icons";
 import { SendIcon } from "./icons";
 
@@ -10,16 +10,7 @@ interface Props {
   modelName?: string;
 }
 
-function formatModelName(raw: string): string {
-  if (!raw) return "—";
-  return raw
-    .split("-")
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join(" ");
-}
-
 export function ChatInput({ onSend, disabled, value, onChange, modelName }: Props) {
-  const [tone, setTone] = useState("Formal");
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = () => {
@@ -55,17 +46,7 @@ export function ChatInput({ onSend, disabled, value, onChange, modelName }: Prop
       />
       <div className="chat-input-footer">
         <div className="chat-input-left">
-          <span className="model-label">{formatModelName(modelName ?? "")}</span>
-          <select
-            className="tone-chip"
-            value={tone}
-            onChange={(e) => setTone(e.target.value)}
-            aria-label="Tom da resposta"
-          >
-            <option>Formal</option>
-            <option>Casual</option>
-            <option>Neutro</option>
-          </select>
+          <span className="model-label">{modelName || "—"}</span>
         </div>
         <div className="chat-input-right">
           {/* Botões de mídia desativados até suporte multimodal ser implementado */}

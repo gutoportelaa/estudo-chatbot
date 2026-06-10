@@ -105,10 +105,21 @@ export async function getProfile(): Promise<AuthUser> {
 
 // ---------- Health ----------
 
+function formatProviderLabel(provider: string, model: string): string {
+  const providerLabel =
+    provider === "openrouter" ? "OpenRouter" : provider.charAt(0).toUpperCase() + provider.slice(1);
+  const modelLabel = model
+    .split("-")
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(" ");
+  return `${providerLabel} · ${modelLabel}`;
+}
+
 export async function fetchModelName(): Promise<string> {
   try {
-    const data = await req<{ model: string }>("/health", {}, false);
-    return data.model ?? "";
+    const data = await req<{ provider: string; model: string }>("/health", {}, false);
+    if (!data.model) return "";
+    return formatProviderLabel(data.provider ?? "", data.model);
   } catch {
     return "";
   }

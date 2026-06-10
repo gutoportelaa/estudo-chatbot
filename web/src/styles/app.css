@@ -715,15 +715,6 @@
   font-weight: 500;
 }
 
-.tone-chip {
-  font-size: 11px;
-  color: var(--accent);
-  background: var(--chip-bg);
-  border: none;
-  border-radius: 6px;
-  padding: 3px 6px;
-  cursor: pointer;
-}
 
 .chat-input-right {
   display: flex;
