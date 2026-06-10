@@ -14,16 +14,6 @@ e **LangGraph** para orquestração com histórico isolado por sessão.
 
 ---
 
-## Como funciona (arquitetura)
-
-![Diagrama de arquitetura do ThinkAI](docs/diagrama_thinkai.png)
-
-- **Multiusuário:** o backend é assíncrono; cada requisição protegida usa `Authorization: Bearer <token>`.
-- **Isolamento:** o histórico é guardado por sessão no PostgreSQL, então cada resposta volta apenas para a sessão correta.
-- **Persistência:** o histórico sobrevive a reinícios do servidor (PostgreSQL containerizado).
-
----
-
 ## Pré-requisito: chave da API Gemini
 
 Obtenha gratuitamente em <https://aistudio.google.com/app/apikey> (conta Google).
