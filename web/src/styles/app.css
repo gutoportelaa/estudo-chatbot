@@ -237,6 +237,10 @@
   display: inline-flex;
 }
 
+.brand svg {
+  align-self: center;
+}
+
 .header-right {
   display: flex;
   align-items: center;
