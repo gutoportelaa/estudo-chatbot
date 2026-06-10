@@ -12,8 +12,9 @@ def get_agent() -> LlmAgent:
     if settings.gemini_api_key:
         os.environ.setdefault("GOOGLE_API_KEY", settings.gemini_api_key)
         os.environ.setdefault("GEMINI_API_KEY", settings.gemini_api_key)
+    model = settings.llm_model or settings.gemini_model
     return LlmAgent(
         name="thinkai",
-        model=settings.gemini_model,
+        model=model,
         instruction=settings.system_prompt,
     )
