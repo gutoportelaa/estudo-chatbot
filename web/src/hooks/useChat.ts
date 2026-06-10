@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { fetchMessages, sendMessage, type ChatMessage } from "../api/client";
 
 function uuid(): string {
@@ -33,9 +34,11 @@ export function useChat(sessionId: string | null) {
 
       try {
         await sendMessage(sessionId, text.trim(), (chunk) => {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + chunk } : m)),
-          );
+          flushSync(() => {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + chunk } : m)),
+            );
+          });
         });
       } catch {
         setError("Não foi possível obter resposta. Verifique se a API está ativa.");
