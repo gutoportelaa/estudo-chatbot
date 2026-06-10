@@ -1,4 +1,4 @@
-import { RefreshIcon } from "./icons";
+// import { RefreshIcon } from "./icons";
 
 const PROMPTS = [
   "Ter novas perspectivas sobre problemas difíceis",
@@ -21,10 +21,10 @@ export function PromptCards({ onPick }: Props) {
           </button>
         ))}
       </div>
-      <button className="refresh-prompts" type="button">
+      {/* <button className="refresh-prompts" type="button">
         <RefreshIcon />
         Atualizar sugestões
-      </button>
+      </button> */}
     </div>
   );
 }

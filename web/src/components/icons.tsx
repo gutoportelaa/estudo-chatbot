@@ -1,5 +1,52 @@
 /** Ícones SVG inline usados na interface (sem dependências externas). */
 
+/**
+ * Logo provisória — esfera com degradê radial e 3 nós em rede.
+ * Substituir por ativo final de design quando disponível.
+ */
+export function ThinkAILogo({ size = 28 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 100 100"
+      aria-hidden
+      style={{ display: "block", flexShrink: 0 }}
+    >
+      <defs>
+        {/* Esfera: branco-esverdeado no centro-topo → verde médio nas bordas */}
+        <radialGradient id="thinkai-sphere" cx="42%" cy="34%" r="68%" gradientUnits="objectBoundingBox">
+          <stop offset="0%"   stopColor="#edfaf3" />
+          <stop offset="52%"  stopColor="#7dd4a0" />
+          <stop offset="100%" stopColor="#3da865" />
+        </radialGradient>
+      </defs>
+
+      {/* Esfera de fundo */}
+      <circle cx="50" cy="50" r="48" fill="url(#thinkai-sphere)" />
+
+      {/* Arco "globo" — linha branca curva que atravessa a esfera */}
+      <path
+        d="M 10,63 C 28,50 58,40 88,30"
+        stroke="white"
+        strokeWidth="2.8"
+        strokeLinecap="round"
+        fill="none"
+        opacity="0.75"
+      />
+
+      {/* Linhas conectoras dos nós (brancas, hub = nó central) */}
+      <line x1="43" y1="51" x2="70" y2="34" stroke="white" strokeWidth="3.2" strokeLinecap="round" />
+      <line x1="43" y1="51" x2="53" y2="73" stroke="white" strokeWidth="3.2" strokeLinecap="round" />
+
+      {/* Nós — círculos verde-escuro com borda branca */}
+      <circle cx="70" cy="34" r="9"   fill="#2e9c56" stroke="white" strokeWidth="1.5" />
+      <circle cx="43" cy="51" r="9"   fill="#2e9c56" stroke="white" strokeWidth="1.5" />
+      <circle cx="53" cy="73" r="8.5" fill="#2e9c56" stroke="white" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 export function LogoIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>

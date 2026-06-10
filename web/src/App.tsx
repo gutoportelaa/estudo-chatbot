@@ -1,4 +1,5 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
+import { fetchModelName } from "./api/client";
 import { ChatInput } from "./components/ChatInput";
 import { Greeting } from "./components/Greeting";
 import { Header } from "./components/Header";
@@ -13,6 +14,11 @@ import { useTheme } from "./hooks/useTheme";
 export default function App() {
   const [theme, toggleTheme] = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [modelName, setModelName] = useState("");
+
+  useEffect(() => {
+    void fetchModelName().then(setModelName);
+  }, []);
   const auth = useAuth();
   const sessions = useSessions(auth.user?.id ?? null, auth.isAuthenticated);
   const sessionId = sessions.activeSessionId;
@@ -173,6 +179,7 @@ export default function App() {
               send(text);
             }}
             disabled={isStreaming || !sessionId}
+            modelName={modelName}
           />
           <div className="composer-footer">
             <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>

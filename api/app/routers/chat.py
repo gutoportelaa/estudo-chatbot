@@ -135,8 +135,17 @@ async def send_message(
     if not session or session.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sessão não encontrada")
 
+    from ..config import get_settings
+    from ..llm import stream_openai_compatible
+
+    settings = get_settings()
+    if settings.llm_provider.lower() in ("groq", "openrouter"):
+        generator = stream_openai_compatible(session_id=session_id, content=body.content)
+    else:
+        generator = _stream_adk(user_id=current_user.id, session_id=session_id, content=body.content)
+
     return StreamingResponse(
-        _stream_adk(user_id=current_user.id, session_id=session_id, content=body.content),
+        generator,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

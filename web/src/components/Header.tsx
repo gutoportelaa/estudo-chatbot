@@ -1,5 +1,5 @@
 import type { Theme } from "../hooks/useTheme";
-import { LogoIcon, MenuIcon, MoonIcon, SunIcon } from "./icons";
+import { MenuIcon, MoonIcon, SunIcon, ThinkAILogo } from "./icons";
 
 interface Props {
   theme: Theme;
@@ -21,9 +21,7 @@ export function Header({ theme, onToggleTheme, onToggleSidebar, userLabel, onLog
           </button>
         ) : null}
         <div className="brand">
-          <span className="brand-icon">
-            <LogoIcon />
-          </span>
+          <ThinkAILogo size={28} />
           <span className="brand-name">ThinkAI</span>
         </div>
       </div>

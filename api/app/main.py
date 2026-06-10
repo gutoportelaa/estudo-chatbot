@@ -38,4 +38,5 @@ app.include_router(chat_router.router)
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "model": _settings.gemini_model}
+    from .llm import active_model
+    return {"status": "ok", "provider": _settings.llm_provider, "model": active_model()}

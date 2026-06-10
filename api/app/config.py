@@ -11,9 +11,19 @@ class Settings(BaseSettings):
     # Banco de dados
     database_url: str = "postgresql+asyncpg://thinkai:thinkai@localhost:5432/thinkai"
 
-    # Google Gemini / ADK
+    # Provedor LLM: gemini | groq | openrouter
+    llm_provider: str = "gemini"
+    llm_model: str = ""  # deixe vazio para usar o padrão do provedor
+
+    # Google Gemini
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-2.5-flash"  # mantido para compatibilidade
+
+    # Groq
+    groq_api_key: str = ""
+
+    # OpenRouter
+    openrouter_api_key: str = ""
 
     # Auth / JWT
     secret_key: str = "change-me-in-production"
