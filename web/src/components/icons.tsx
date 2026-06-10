@@ -1,62 +1,48 @@
 /** Ícones SVG inline usados na interface (sem dependências externas). */
 
 /**
- * Miniatura vetorial da logo ThinkAI — extraída dos 3 bolões do thinkai_logo.svg.
- * viewBox ajustado para enquadrar apenas as formas; degradê radial próprio de cada path.
+ * Logo provisória — esfera com degradê radial e 3 nós em rede.
+ * Substituir por ativo final de design quando disponível.
  */
-export function ThinkAILogo({ size = 22 }: { size?: number }) {
-  const h = Math.round(size * 1.36);
+export function ThinkAILogo({ size = 28 }: { size?: number }) {
   return (
     <svg
       width={size}
-      height={h}
-      viewBox="285 140 425 640"
+      height={size}
+      viewBox="0 0 100 100"
       aria-hidden
       style={{ display: "block", flexShrink: 0 }}
     >
       <defs>
-        {/* Degradê radial: centro claro → borda escura, aplicado ao bounding-box de cada path */}
-        <radialGradient
-          id="thinkai-rg"
-          cx="42%"
-          cy="38%"
-          r="62%"
-          gradientUnits="objectBoundingBox"
-        >
-          <stop offset="0%"   stopColor="#7de8a8" />
-          <stop offset="55%"  stopColor="#2f9f56" />
-          <stop offset="100%" stopColor="#145e2e" />
+        {/* Esfera: branco-esverdeado no centro-topo → verde médio nas bordas */}
+        <radialGradient id="thinkai-sphere" cx="42%" cy="34%" r="68%" gradientUnits="objectBoundingBox">
+          <stop offset="0%"   stopColor="#edfaf3" />
+          <stop offset="52%"  stopColor="#7dd4a0" />
+          <stop offset="100%" stopColor="#3da865" />
         </radialGradient>
       </defs>
 
-      {/* bola_3 — superior direita */}
+      {/* Esfera de fundo */}
+      <circle cx="50" cy="50" r="48" fill="url(#thinkai-sphere)" />
+
+      {/* Arco "globo" — linha branca curva que atravessa a esfera */}
       <path
-        d="M574.09,194.445C575.397,185.425 576.082,185.46 578.047,180.337C578.638,178.794
-           582.444,168.873 588.567,162.56C589.867,161.22 599.045,151.757 606.69,147.876
-           C650.613,125.578 690.084,152.986 700.051,187.654C703.967,201.274 701.403,214.342
-           700.956,216.617C693.002,257.152 652.376,277.527 618.547,266.368
-           C592.502,257.777 568.534,232.083 574.09,194.445Z"
-        fill="url(#thinkai-rg)"
+        d="M 10,63 C 28,50 58,40 88,30"
+        stroke="white"
+        strokeWidth="2.8"
+        strokeLinecap="round"
+        fill="none"
+        opacity="0.75"
       />
 
-      {/* bola_2 — meio esquerda */}
-      <path
-        d="M357.465,402.048C375.564,399.428 400.095,406.738 414.911,427.208
-           C417.726,431.098 417.379,431.237 419.961,435.225C427.878,447.451 428.574,468.715
-           426.325,478.45C416.382,521.477 371.877,540.997 335.736,523.039
-           C314.543,512.509 304.08,491.542 301.705,480.438C292.92,439.364
-           321.335,404.763 357.465,402.048Z"
-        fill="url(#thinkai-rg)"
-      />
+      {/* Linhas conectoras dos nós (brancas, hub = nó central) */}
+      <line x1="43" y1="51" x2="70" y2="34" stroke="white" strokeWidth="3.2" strokeLinecap="round" />
+      <line x1="43" y1="51" x2="53" y2="73" stroke="white" strokeWidth="3.2" strokeLinecap="round" />
 
-      {/* bola_1 — inferior centro */}
-      <path
-        d="M509.501,623.051C546.571,621.968 579.793,656.616 571.817,698.549
-           C562.72,746.378 502.76,769.682 463.535,729.466C447.596,713.124 433.869,671.781
-           467.462,639.46C483.786,623.754 503.089,623.175 506.473,623.074
-           C507.482,623.043 508.492,623.082 509.501,623.051Z"
-        fill="url(#thinkai-rg)"
-      />
+      {/* Nós — círculos verde-escuro com borda branca */}
+      <circle cx="70" cy="34" r="9"   fill="#2e9c56" stroke="white" strokeWidth="1.5" />
+      <circle cx="43" cy="51" r="9"   fill="#2e9c56" stroke="white" strokeWidth="1.5" />
+      <circle cx="53" cy="73" r="8.5" fill="#2e9c56" stroke="white" strokeWidth="1.5" />
     </svg>
   );
 }

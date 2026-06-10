@@ -59,7 +59,7 @@ body,
 }
 
 body {
-  font-family: "Literata", Georgia, "Times New Roman", serif;
+  font-family: "Signika", system-ui, sans-serif;
   background: var(--page-bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
