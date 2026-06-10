@@ -1,14 +1,24 @@
 import { useRef, useState } from "react";
-import { ImageIcon, PaperclipIcon, SendIcon } from "./icons";
+// import { ImageIcon, PaperclipIcon, SendIcon } from "./icons";
+import { SendIcon } from "./icons";
 
 interface Props {
   onSend: (text: string) => void;
   disabled: boolean;
   value: string;
   onChange: (v: string) => void;
+  modelName?: string;
 }
 
-export function ChatInput({ onSend, disabled, value, onChange }: Props) {
+function formatModelName(raw: string): string {
+  if (!raw) return "—";
+  return raw
+    .split("-")
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(" ");
+}
+
+export function ChatInput({ onSend, disabled, value, onChange, modelName }: Props) {
   const [tone, setTone] = useState("Formal");
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -45,7 +55,7 @@ export function ChatInput({ onSend, disabled, value, onChange }: Props) {
       />
       <div className="chat-input-footer">
         <div className="chat-input-left">
-          <span className="model-label">ThinkAI 3.5 Smart</span>
+          <span className="model-label">{formatModelName(modelName ?? "")}</span>
           <select
             className="tone-chip"
             value={tone}
@@ -58,12 +68,13 @@ export function ChatInput({ onSend, disabled, value, onChange }: Props) {
           </select>
         </div>
         <div className="chat-input-right">
-          <button className="icon-btn ghost" aria-label="Anexar imagem">
+          {/* Botões de mídia desativados até suporte multimodal ser implementado */}
+          {/* <button className="icon-btn ghost" aria-label="Anexar imagem">
             <ImageIcon />
           </button>
           <button className="icon-btn ghost" aria-label="Anexar arquivo">
             <PaperclipIcon />
-          </button>
+          </button> */}
           <button
             className="send-btn"
             onClick={submit}

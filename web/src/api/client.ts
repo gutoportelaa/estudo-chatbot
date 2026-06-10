@@ -103,6 +103,17 @@ export async function getProfile(): Promise<AuthUser> {
   return req<AuthUser>("/auth/profile");
 }
 
+// ---------- Health ----------
+
+export async function fetchModelName(): Promise<string> {
+  try {
+    const data = await req<{ model: string }>("/health", {}, false);
+    return data.model ?? "";
+  } catch {
+    return "";
+  }
+}
+
 // ---------- Sessions ----------
 
 export async function listSessions(): Promise<SessionSummary[]> {
