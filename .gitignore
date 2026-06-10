@@ -1,7 +1,3 @@
-# gitignore template for LangChain products, e.g., LangGraph, LangSmith
-# website: https://www.langchain.com/
-# website: https://www.langchain.com/langgraph
-
 # LangGraph
 .langgraph_api/
 
@@ -10,10 +6,14 @@
 # Python / uv (backend)
 api/.venv/
 api/data/
+
+.env
+.coverage
+test.db
+
+.pytest_cache/
 __pycache__/
 *.pyc
-.env
-api/.env
 
 # Node / bun (frontend)
 web/node_modules/
@@ -21,4 +21,3 @@ web/dist/
 web/*.tsbuildinfo
 web/vite.config.js
 web/vite.config.d.ts
-
