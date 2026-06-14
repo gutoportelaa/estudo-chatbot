@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # Banco de dados
     database_url: str = "postgresql+asyncpg://thinkai:thinkai@localhost:5432/thinkai"
 
-    # Provedor LLM: gemini | groq | openrouter
+    # Provedor LLM: gemini | groq | openrouter | ollama
     llm_provider: str = "gemini"
     llm_model: str = ""  # deixe vazio para usar o padrão do provedor
 
@@ -24,6 +24,10 @@ class Settings(BaseSettings):
 
     # OpenRouter
     openrouter_api_key: str = ""
+
+    # Ollama (local)
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "llama3.2"
 
     # Auth / JWT
     secret_key: str = "change-me-in-production"

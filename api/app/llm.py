@@ -1,7 +1,8 @@
-"""Streaming OpenAI-compatível para provedores Groq e OpenRouter."""
+"""Streaming OpenAI-compatível para provedores Groq, OpenRouter e Ollama."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
@@ -17,10 +18,17 @@ _PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",
         "model": "llama-3.1-8b-instant",
+        "api_key_field": "groq_api_key",
     },
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1",
         "model": "meta-llama/llama-3.1-8b-instruct:free",
+        "api_key_field": "openrouter_api_key",
+    },
+    "ollama": {
+        "base_url": "",  # preenchido dinamicamente de ollama_base_url
+        "model": "",     # preenchido dinamicamente de ollama_model
+        "api_key_field": "",
     },
 }
 
@@ -31,9 +39,16 @@ def active_model() -> str:
     provider = settings.llm_provider.lower()
     if settings.llm_model:
         return settings.llm_model
+    if provider == "ollama":
+        return settings.ollama_model
     if provider in _PROVIDER_DEFAULTS:
         return _PROVIDER_DEFAULTS[provider]["model"]
     return settings.gemini_model
+
+
+def _sse(payload: str) -> str:
+    """Emite um evento SSE com payload JSON: data: {"t": "..."}\n\n"""
+    return f"data: {json.dumps({'t': payload})}\n\n"
 
 
 async def stream_openai_compatible(
@@ -43,10 +58,16 @@ async def stream_openai_compatible(
 ) -> AsyncGenerator[str, None]:
     settings = get_settings()
     provider = settings.llm_provider.lower()
-    cfg = _PROVIDER_DEFAULTS[provider]
 
-    api_key = settings.groq_api_key if provider == "groq" else settings.openrouter_api_key
-    model = settings.llm_model or cfg["model"]
+    if provider == "ollama":
+        base_url = settings.ollama_base_url
+        model = settings.llm_model or settings.ollama_model
+        api_key = "ollama"
+    else:
+        cfg = _PROVIDER_DEFAULTS[provider]
+        base_url = cfg["base_url"]
+        model = settings.llm_model or cfg["model"]
+        api_key = getattr(settings, cfg["api_key_field"], "") or "no-key"
 
     # Carrega histórico e salva mensagem do usuário
     now = datetime.now(timezone.utc)
@@ -76,7 +97,7 @@ async def stream_openai_compatible(
         + [{"role": "user", "content": content}]
     )
 
-    client = AsyncOpenAI(base_url=cfg["base_url"], api_key=api_key)
+    client = AsyncOpenAI(base_url=base_url, api_key=api_key)
     full_text = ""
 
     try:
@@ -86,9 +107,9 @@ async def stream_openai_compatible(
             delta = chunk.choices[0].delta.content if chunk.choices else None
             if delta:
                 full_text += delta
-                yield f"data: {delta.replace(chr(10), chr(92) + 'n')}\n\n"
+                yield _sse(delta)
     except Exception as exc:
-        yield f"data: [ERROR] {str(exc)[:300]}\n\n"
+        yield f"data: {json.dumps({'error': str(exc)[:300]})}\n\n"
         return
 
     yield "data: [DONE]\n\n"

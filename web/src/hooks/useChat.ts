@@ -36,7 +36,7 @@ export function useChat(sessionId: string | null) {
       assistantIdRef.current = assistantId;
       bufferRef.current = "";
 
-      setMessages((prev) => [...prev, userMsg, { id: assistantId, role: "assistant", content: "" }]);
+      setMessages((prev) => [...prev, userMsg, { id: assistantId, role: "assistant", content: "", streaming: true }]);
       setIsStreaming(true);
 
       // Atualiza o state a ~60fps com o conteúdo acumulado no buffer
@@ -72,7 +72,7 @@ export function useChat(sessionId: string | null) {
         const finalText = bufferRef.current;
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, content: finalText } : m,
+            m.id === assistantId ? { ...m, content: finalText, streaming: false } : m,
           ),
         );
         setIsStreaming(false);

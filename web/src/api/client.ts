@@ -18,6 +18,7 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  streaming?: boolean;
 }
 
 interface ApiErrorPayload {
@@ -197,7 +198,13 @@ export async function sendMessage(
       if (!line.startsWith("data:")) continue;
       const payload = line.slice(5).trim();
       if (payload === "[DONE]") return;
-      onToken(payload.replace(/\\n/g, "\n"));
+      try {
+        const parsed = JSON.parse(payload) as { t?: string; error?: string };
+        if (parsed.error) throw new Error(parsed.error);
+        if (parsed.t) onToken(parsed.t);
+      } catch {
+        // chunk não-JSON ignorado (ex: eventos de controle)
+      }
     }
   }
 }
