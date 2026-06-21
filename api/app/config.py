@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     llm_provider: str = "gemini"
     llm_model: str = ""  # deixe vazio para usar o padrão do provedor
 
+    # Orquestrador: quando True, usa o caminho ADK (Runner) mesmo com provedores
+    # não-Gemini (via LiteLLM). Quando False, provedores OpenAI-compatíveis usam
+    # o streaming direto de app/llm.py. Gemini sempre usa o ADK.
+    use_adk: bool = False
+
     # Google Gemini
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"  # mantido para compatibilidade

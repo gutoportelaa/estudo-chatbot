@@ -167,10 +167,11 @@ async def send_message(
     from ..llm import stream_openai_compatible
 
     settings = get_settings()
-    if settings.llm_provider.lower() in ("groq", "openrouter", "ollama"):
-        generator = stream_openai_compatible(session_id=session_id, content=body.content)
-    else:
+    use_adk = settings.use_adk or settings.llm_provider.lower() == "gemini"
+    if use_adk:
         generator = _stream_adk(user_id=current_user.id, session_id=session_id, content=body.content)
+    else:
+        generator = stream_openai_compatible(session_id=session_id, content=body.content)
 
     return StreamingResponse(
         generator,

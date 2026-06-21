@@ -3,7 +3,7 @@ from functools import lru_cache
 
 from google.adk.runners import Runner
 
-from .agent import get_agent
+from .agent import build_summarizer_llm, get_agent
 from .config import get_settings
 
 APP_NAME = "thinkai"
@@ -12,11 +12,12 @@ logger = logging.getLogger("thinkai.runner")
 
 
 def _build_compaction_config():
-    """Configura o Context Compaction nativo do ADK (caminho Gemini).
+    """Configura o Context Compaction nativo do ADK.
 
     Janela deslizante + evento de resumo gerenciados pelo próprio ADK. Fica
     desativado por padrão (`adk_compaction_enabled`) e é totalmente defensivo:
-    qualquer falha apenas registra log e segue sem compaction nativa.
+    qualquer falha apenas registra log e segue sem compaction nativa. O
+    resumidor segue o provedor ativo (Gemini nativo ou LiteLLM/Ollama).
     """
     settings = get_settings()
     if not settings.adk_compaction_enabled:
@@ -24,10 +25,8 @@ def _build_compaction_config():
     try:
         from google.adk.apps.app import EventsCompactionConfig
         from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
-        from google.adk.models.registry import LLMRegistry
 
-        model = settings.llm_model or settings.gemini_model
-        summarizer = LlmEventSummarizer(llm=LLMRegistry.new_llm(model))
+        summarizer = LlmEventSummarizer(llm=build_summarizer_llm(settings))
         return EventsCompactionConfig(
             summarizer=summarizer,
             compaction_interval=settings.adk_compaction_interval,
