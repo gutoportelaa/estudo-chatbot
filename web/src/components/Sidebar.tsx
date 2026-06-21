@@ -1,5 +1,5 @@
 import type { SessionSummary } from "../api/client";
-import { ChatIcon, EllipsisIcon, PlusIcon, TrashIcon } from "./icons";
+import { ChatIcon, EllipsisIcon, PlusIcon, TrashIcon, SettingsIcon } from "./icons";
 import { useState } from "react";
 
 interface Props {
@@ -10,6 +10,7 @@ interface Props {
   onNew: () => void;
   onRename: (id: string, currentTitle: string | null | undefined) => void | Promise<void>;
   onDelete: (id: string) => void;
+  onOpenPreferences: () => void;
 }
 
 export function Sidebar({
@@ -20,6 +21,7 @@ export function Sidebar({
   onNew,
   onRename,
   onDelete,
+  onOpenPreferences,
 }: Props) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
@@ -98,6 +100,13 @@ export function Sidebar({
             ))
           )}
         </nav>
+
+        <div className="sidebar-footer">
+          <button className="sidebar-prefs-btn" onClick={onOpenPreferences} title="Preferências">
+            <SettingsIcon />
+            <span>Preferências</span>
+          </button>
+        </div>
       </div>
     </aside>
   );

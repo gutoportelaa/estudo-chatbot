@@ -1,14 +1,12 @@
 # ThinkAI — Chatbot multiusuário (estudo)
 
-[![CI](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/ci.yml)
-
 Protótipo funcional de um chatbot multiusuário, usando **Google Gemini** como LLM
 e **LangGraph** para orquestração com histórico isolado por sessão.
 
 | Camada    | Stack                                                    | Gerenciador |
 | --------- | -------------------------------------------------------- | ----------- |
-| `web/`    | React + TypeScript + Vite                                | **bun / npm** |
-| `api/`    | Python + FastAPI + LangGraph + `langchain-google-genai` | **uv**      |
+| `web/`    | React + TypeScript + Vite                                | **bun**     |
+| `api/`    | Python + FastAPI + LangGraph + `langchain-google-genai`  | **uv**      |
 | LLM       | Google Gemini · modelo `gemini-2.0-flash` (API gratuita) | —           |
 | Histórico | LangGraph `SqliteSaver` (`thread_id = session_id`)       | —           |
 
@@ -16,11 +14,24 @@ e **LangGraph** para orquestração com histórico isolado por sessão.
 
 ## Como funciona (arquitetura)
 
-![Diagrama de arquitetura do ThinkAI](docs/diagrama_thinkai.png)
+```
+Browser (React/Vite)               FastAPI (api)                 Google Gemini API
+  │  session_id (UUID,                 │                            │
+  │  guardado em localStorage)         │                            │
+  ├── POST /session ──────────────────►│  gera UUID                 │
+  │                                    │                            │
+  ├── POST /chat (SSE) ───────────────►│  LangGraph.astream ───────►│ gemini-2.0-flash
+  │◄───── tokens (text/event-stream) ──┤  thread_id = session_id    │
+  │                                    │                            │
+  │                              SqliteSaver (data/sessions.sqlite)
+  │                              histórico isolado por sessão
+```
 
-- **Multiusuário:** o backend é assíncrono; cada requisição protegida usa `Authorization: Bearer <token>`.
-- **Isolamento:** o histórico é guardado por sessão no PostgreSQL, então cada resposta volta apenas para a sessão correta.
-- **Persistência:** o histórico sobrevive a reinícios do servidor (PostgreSQL containerizado).
+- **Multiusuário:** o backend é assíncrono; cada requisição carrega seu `session_id`.
+- **Isolamento:** o `SqliteSaver` do LangGraph guarda o histórico por `thread_id`, então cada
+  resposta volta apenas para a sessão/usuário correto (verificado: a sessão A lembra o nome
+  informado; a sessão B não tem acesso a ele).
+- **Persistência:** o histórico sobrevive a reinícios do servidor (fica em `api/data/sessions.sqlite`).
 
 ---
 
@@ -48,8 +59,8 @@ uv run uvicorn app.main:app --reload --port 8000
 ```bash
 cd web
 cp .env.example .env   # VITE_API_URL=http://localhost:8000
-npm install            # ou: bun install
-npm run dev            # ou: bun run dev
+bun install
+bun run dev            # http://localhost:5173
 ```
 
 Abra <http://localhost:5173>, envie uma mensagem e veja a resposta em streaming.
@@ -83,49 +94,12 @@ curl http://localhost:8000/health
 # {"status":"ok","model":"gemini-2.0-flash"}
 ```
 
-### `POST /auth/signup`
-Cria um novo usuário.
+### `POST /session`
+Cria uma nova sessão e devolve um **ID único** (UUID). O frontend guarda esse ID em
+`localStorage` e o reenvia em cada mensagem.
 ```bash
-curl -X POST http://localhost:8000/auth/signup \
-  -H "Content-Type: application/json" \
-  -d '{"username":"demo","password":"123456"}'
-```
-
-### `POST /auth/signin`
-Autentica e retorna JWT.
-```bash
-curl -X POST http://localhost:8000/auth/signin \
-  -H "Content-Type: application/json" \
-  -d '{"username":"demo","password":"123456"}'
-# {"access_token":"...","token_type":"bearer"}
-```
-
-### `GET /auth/profile`
-Retorna perfil do usuário autenticado.
-```bash
-curl http://localhost:8000/auth/profile \
-  -H "Authorization: Bearer <jwt>"
-```
-
-### `GET /sessions`
-Lista as sessões do usuário autenticado.
-```bash
-curl http://localhost:8000/sessions \
-  -H "Authorization: Bearer <jwt>"
-```
-
-### `POST /sessions`
-Cria nova sessão para o usuário autenticado.
-```bash
-curl -X POST http://localhost:8000/sessions \
-  -H "Authorization: Bearer <jwt>"
-```
-
-### `DELETE /sessions/{id}`
-Remove uma sessão do usuário autenticado.
-```bash
-curl -X DELETE http://localhost:8000/sessions/<session_id> \
-  -H "Authorization: Bearer <jwt>"
+curl -X POST http://localhost:8000/session
+# {"session_id":"bb98ab08-883c-41fb-a460-b52cbe41dacc"}
 ```
 
 ### `POST /chat`
@@ -141,7 +115,6 @@ Exemplo:
 ```bash
 curl -N -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <jwt>" \
   -d '{"session_id":"<uuid>","message":"Explique o que é uma API REST"}'
 ```
 
@@ -149,10 +122,7 @@ Exemplo no browser (consumindo o stream):
 ```js
 const res = await fetch("http://localhost:8000/chat", {
   method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
-  },
+  headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ session_id, message: "Olá!" }),
 });
 const reader = res.body.getReader();
@@ -174,8 +144,7 @@ while (true) {
 ### `GET /history/{session_id}`
 Retorna o histórico persistido de uma sessão.
 ```bash
-curl http://localhost:8000/history/<uuid> \
-  -H "Authorization: Bearer <jwt>"
+curl http://localhost:8000/history/<uuid>
 # {"session_id":"...","messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}
 ```
 
@@ -183,49 +152,20 @@ curl http://localhost:8000/history/<uuid> \
 
 ---
 
-## Testando o frontend com Vite
-
-Use este roteiro para validar a integração JWT + sessões no browser:
-
-1. Suba a API:
-```bash
-cd api
-uv run uvicorn app.main:app --reload --port 8000
-```
-
-2. Em outro terminal, suba o frontend com Vite:
-```bash
-cd web
-npm install
-npm run dev
-```
-
-3. Abra `http://localhost:5173` e valide:
-- tela inicial mostra formulário de autenticação
-- `Criar conta` cria usuário e já autentica
-- após login, aparece seletor de sessão + botão `Nova sessão`
-- cada conversa tem menu de três pontos para `Renomear` ou `Remover conversa`
-- enviar mensagem faz streaming normalmente
-- trocar sessão troca histórico
-- botão de logout limpa estado autenticado
-
-4. Verificação rápida no DevTools (Network):
-- requests protegidas com header `Authorization: Bearer ...`
-- `POST /chat` com SSE e bearer
-
 ## Demonstrando o histórico isolado por sessão
 
 Cada usuário recebe um `session_id` (UUID) e o histórico é guardado por `thread_id = session_id`
 no `SqliteSaver`. Há duas formas práticas de demonstrar o isolamento:
 
 ### A) Pelo navegador (multiusuário real)
-Cada usuário autenticado pode ter várias sessões, e cada sessão mantém seu histórico isolado:
-1. Faça login no navegador normal e crie uma sessão A.
-2. Envie: *"Meu nome é Ana"*.
-3. Crie uma sessão B e pergunte: *"Qual é o meu nome?"*.
-4. A sessão A lembra "Ana"; a B não compartilha o mesmo contexto.
+O `session_id` fica no `localStorage`, então **cada navegador/janela anônima é um usuário diferente**:
+1. Abra <http://localhost:5173> no navegador normal e diga: *"Meu nome é Ana"*.
+2. Abra a mesma URL numa **janela anônima** (ou outro navegador/dispositivo) e pergunte: *"Qual é o meu nome?"*.
+3. A primeira sessão lembra "Ana"; a segunda **não sabe** — históricos isolados.
+4. Recarregar a página mantém a conversa (o ID persiste e o histórico vem de `/history`).
 
-> Para simular usuários distintos, use uma janela anônima e autentique com outro usuário.
+> Para simular vários usuários simultâneos a partir de um mesmo navegador, basta usar abas anônimas
+> distintas — cada contexto anônimo tem seu próprio `localStorage` e, portanto, seu próprio `session_id`.
 
 ### B) Por script (reproduzível, via API)
 Com a API rodando, execute o roteiro pronto que cria duas sessões e comprova o isolamento:
@@ -335,8 +275,8 @@ docker compose up -d --build
 
 Após o comando anterior terminar, sua aplicação está no ar!
 
-- **Acesse pelo navegador:** `http://SEU_IP_PUBLICO` (deve abrir a tela de login).
-- **Teste a API (Healthcheck):** Pode ser feito no seu terminal local ou abrindo `http://SEU_IP_PUBLICO:8000/health` no navegador. Deve retornar `{"status":"ok"}`.
+- **Acesse pelo navegador:** `http://3.14.85.184/` (deve abrir a tela de login).
+- **Teste a API (Healthcheck):** Pode ser feito no seu terminal local ou abrindo `http://3.14.85.184:8000/health` no navegador. Deve retornar `{"status":"ok"}`.
 
 > **Dica de Economia:** Quando não estiver mais estudando ou usando, vá no console da AWS, selecione a instância e clique em **Instance state -> Stop instance**. Instâncias paradas não cobram por hora de uso (apenas centavos pelo armazenamento do disco). Lembre-se que, ao iniciar de novo (Start instance), **o IP público mudará**, então você precisará atualizar o IP no `docker-compose.yml` e rodar `docker compose up -d` novamente. Caso queira fixar o IP público para não mudar nunca mais, você pode usar a funcionalidade de **Elastic IP** (que é gratuita se associada a uma instância em execução).
 
@@ -348,7 +288,7 @@ Após o comando anterior terminar, sua aplicação está no ar!
 estudo-chatbot/
 ├─ api/                  # Backend (uv)
 │  └─ app/
-│     ├─ main.py         # FastAPI: /health e inclusão de routers
+│     ├─ main.py         # FastAPI: /session, /chat (SSE), /history, /health
 │     ├─ graph.py        # Grafo LangGraph (ChatGoogleGenerativeAI + checkpointer)
 │     ├─ chat.py         # Streaming SSE e leitura de histórico
 │     ├─ config.py       # Settings (.env)
@@ -356,8 +296,8 @@ estudo-chatbot/
 ├─ web/                  # Frontend (bun)
 │  └─ src/
 │     ├─ App.tsx
-│     ├─ api/client.ts   # auth JWT + sessões + chat/history
-│     ├─ hooks/          # useAuth, useSessions, useChat, useTheme
+│     ├─ api/client.ts   # createSession / streamChat / fetchHistory
+│     ├─ hooks/          # useSession, useChat, useTheme
 │     ├─ components/     # Header, Greeting, PromptCards, ChatInput, MessageList...
 │     └─ styles/         # theme.css (claro/nocturne) + app.css
 ├─ scripts/

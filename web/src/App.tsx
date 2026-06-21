@@ -10,10 +10,12 @@ import { useAuth } from "./hooks/useAuth";
 import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
 import { useTheme } from "./hooks/useTheme";
+import { PreferencesModal } from "./components/PreferencesModal";
 
 export default function App() {
-  const [theme, toggleTheme] = useTheme();
+  const { theme, toggleTheme, colorStart, colorEnd, setColorStart, setColorEnd } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [prefsOpen, setPrefsOpen] = useState(false);
   const [modelName, setModelName] = useState("");
 
   useEffect(() => {
@@ -148,6 +150,16 @@ export default function App() {
           if (!window.confirm(`Apagar ${label}? Essa ação não pode ser desfeita.`)) return;
           await sessions.removeSession(id);
         }}
+        onOpenPreferences={() => setPrefsOpen(true)}
+      />
+
+      <PreferencesModal
+        isOpen={prefsOpen}
+        onClose={() => setPrefsOpen(false)}
+        colorStart={colorStart}
+        colorEnd={colorEnd}
+        setColorStart={setColorStart}
+        setColorEnd={setColorEnd}
       />
 
       <div className="window">
