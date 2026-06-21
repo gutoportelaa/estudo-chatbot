@@ -7,8 +7,8 @@ from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
 from openai import AsyncOpenAI
-from sqlalchemy import select
 
+from . import context
 from .config import get_settings
 from .database import AsyncSessionLocal
 from .models import Message
@@ -69,20 +69,19 @@ async def stream_openai_compatible(
         model = settings.llm_model or cfg["model"]
         api_key = getattr(settings, cfg["api_key_field"], "") or "no-key"
 
-    # Carrega histórico e salva mensagem do usuário
-    now = datetime.now(timezone.utc)
-    async with AsyncSessionLocal() as db:
-        rows = list(
-            (
-                await db.execute(
-                    select(Message)
-                    .where(Message.session_id == session_id)
-                    .order_by(Message.created_at)
-                )
-            ).scalars()
-        )
-        history = [{"role": m.role, "content": m.content} for m in rows]
+    client = AsyncOpenAI(base_url=base_url, api_key=api_key)
 
+    # Persiste a mensagem do usuário e monta o contexto com gestão de histórico
+    # (janela deslizante + resumo). A sumarização usa o mesmo provedor/cliente.
+    now = datetime.now(timezone.utc)
+    summarizer_model = settings.summarizer_model or model
+    summarizer = context.build_summarizer(
+        client=client,
+        model=summarizer_model,
+        max_tokens=settings.history_summary_max_tokens,
+    )
+
+    async with AsyncSessionLocal() as db:
         session_row = await db.get(SessionRow, session_id)
         if session_row and session_row.title is None:
             compact = " ".join(content.split())
@@ -91,13 +90,15 @@ async def stream_openai_compatible(
         db.add(Message(session_id=session_id, role="user", content=content, created_at=now))
         await db.commit()
 
-    messages = (
-        [{"role": "system", "content": settings.system_prompt}]
-        + history
-        + [{"role": "user", "content": content}]
-    )
+        messages = await context.assemble_messages(
+            db,
+            session_id=session_id,
+            system_prompt=settings.system_prompt,
+            settings=settings,
+            summarizer=summarizer,
+            summarizer_model=summarizer_model,
+        )
 
-    client = AsyncOpenAI(base_url=base_url, api_key=api_key)
     full_text = ""
 
     try:
