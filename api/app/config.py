@@ -43,6 +43,25 @@ class Settings(BaseSettings):
         "Responda no mesmo idioma da pergunta."
     )
 
+    # ----- Gestão de histórico (janela deslizante + sumarização híbrida) -----
+    # Estratégia: "hybrid" (buffer recente + resumo), "window" (só janela), "off".
+    history_strategy: str = "hybrid"
+    # N mensagens recentes mantidas verbatim na janela.
+    history_window_messages: int = 12
+    # Quantas mensagens precisam sair da janela para disparar uma compactação.
+    history_summarize_after_messages: int = 6
+    # Limiar de tokens do resumo: acima disso, recompacta (resumo-de-resumo).
+    history_summary_max_tokens: int = 600
+    # Modelo usado para sumarizar (vazio = mesmo modelo do chat).
+    summarizer_model: str = ""
+
+    # ----- Context Compaction nativo do ADK (caminho Gemini) -----
+    adk_compaction_enabled: bool = False
+    adk_compaction_interval: int = 4
+    adk_compaction_overlap: int = 1
+    adk_compaction_token_threshold: int = 4000
+    adk_compaction_retention: int = 6
+
     @property
     def cors_origins_list(self) -> list[str]:
         if self.cors_origins.strip() == "*":

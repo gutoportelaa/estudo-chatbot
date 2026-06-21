@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user
+from ..context import list_summaries
 from ..database import get_db
 from ..models import Message, Session, User
 from ..runner import APP_NAME, get_runner
@@ -78,6 +79,33 @@ async def get_messages(
         select(Message).where(Message.session_id == session_id).order_by(Message.created_at)
     )
     return [{"id": m.id, "role": m.role, "content": m.content} for m in result.scalars().all()]
+
+
+@router.get("/{session_id}/summaries")
+async def get_summaries(
+    session_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[dict]:
+    """Log de auditoria: histórico de compactações/sumarizações da sessão."""
+    session = await db.get(Session, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sessão não encontrada")
+
+    summaries = await list_summaries(db, session_id)
+    return [
+        {
+            "id": s.id,
+            "summary": s.summary,
+            "covered_message_count": s.covered_message_count,
+            "source_message_count": s.source_message_count,
+            "summary_tokens": s.summary_tokens,
+            "trigger": s.trigger,
+            "model": s.model,
+            "created_at": s.created_at.isoformat(),
+        }
+        for s in summaries
+    ]
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
