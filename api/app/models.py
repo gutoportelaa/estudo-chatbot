@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -22,6 +22,12 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     sessions: Mapped[list["Session"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    documents: Mapped[list["Document"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    summaries: Mapped[list["Summary"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -83,3 +89,79 @@ class ConversationSummary(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     session: Mapped["Session"] = relationship()
+
+
+# --------------------------------------------------------------------------
+# Entrega final — documentos PDF e resumos (issue A1 / RF-TEC-002)
+# --------------------------------------------------------------------------
+
+
+class Document(Base):
+    """Metadados de um PDF enviado pelo usuário.
+
+    O binário **não** fica no banco: é armazenado no S3 (produção) ou no
+    filesystem (dev). Aqui guardamos só a referência (`storage_backend` +
+    `storage_key`) e os metadados.
+    """
+
+    __tablename__ = "documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Nome original do arquivo enviado.
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False, default="application/pdf")
+    # Onde o binário vive: "s3" | "local".
+    storage_backend: Mapped[str] = mapped_column(String(16), nullable=False, default="s3")
+    # Chave no S3 ou caminho no filesystem.
+    storage_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    # Páginas do PDF (preenchido na extração; pode ser nulo até processar).
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    user: Mapped["User"] = relationship(back_populates="documents")
+    summaries: Mapped[list["Summary"]] = relationship(
+        secondary="summary_documents", back_populates="documents"
+    )
+
+
+class Summary(Base):
+    """Resumo gerado por LLM — individual (1 doc) ou consolidado (N docs)."""
+
+    __tablename__ = "summaries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # "single" (RF-004) | "consolidated" (RF-005).
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="single")
+    # Modelo/provedor que gerou o resumo (auditoria).
+    llm_model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    user: Mapped["User"] = relationship(back_populates="summaries")
+    documents: Mapped[list["Document"]] = relationship(
+        secondary="summary_documents", back_populates="summaries"
+    )
+
+
+class SummaryDocument(Base):
+    """Associação N:N entre resumos e documentos.
+
+    Um resumo consolidado liga-se a vários documentos; um documento pode
+    aparecer em vários resumos.
+    """
+
+    __tablename__ = "summary_documents"
+
+    summary_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("summaries.id", ondelete="CASCADE"), primary_key=True
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
