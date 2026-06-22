@@ -86,18 +86,29 @@ modelo; Ollama local pode ser lento — considerar Groq/Gemini para a métrica).
   *Aceite:* usuário edita nome/descrição/imagem; persiste.
 
 ### EPIC C — Upload e gestão de arquivos (RF-002, RF-003)
-- **C1 · RF-002: Upload de PDF** (≤ 50 MB, validação `.pdf`/MIME, storage por
-  usuário em filesystem/volume ou S3, metadados em `documents`).
-  *Aceite:* upload válido persiste; rejeita > 50 MB e não-PDF; isolamento por usuário.
+- **C1 · RF-002: Upload de PDF** (≤ 50 MB, validação `.pdf` + *magic bytes* `%PDF`).
+  **Decisão de arquitetura: S3 + presigned URLs** — o frontend pede uma URL
+  assinada e sobe o PDF **direto no S3** (a EC2 nunca segura o binário); a API só
+  persiste `s3_key`/metadados em `documents`. Acesso ao bucket via **IAM Role**
+  da EC2 (sem access key em disco). Em dev: fallback para filesystem local.
+  *Aceite:* upload válido persiste metadados + objeto no S3; rejeita > 50 MB e
+  não-PDF; isolamento por usuário; presigned URL expira.
 - **C2 · RF-003: Listagem e seleção** (GET /documents do usuário; frontend com
   seleção individual e múltipla). *Aceite:* lista só os do usuário; multiseleção.
 
 ### EPIC D — Resumo via LLM (RF-004, RF-005)
+> **Decisão de arquitetura: processamento assíncrono.** PDFs grandes estouram o
+> timeout HTTP. Introduzir tabela `jobs` (status pending/running/done/error) e
+> processar fora do request — Baseline: `BackgroundTasks` + **SSE** (já existe!)
+> para progresso; evolução: SQS + worker. Provedor de nuvem (**Groq** primário)
+> para cumprir a métrica < 30 s; Ollama só em dev.
 - **D1 · Extração de texto de PDF** (lib p.ex. `pypdf`; tratar PDFs grandes;
   chunking). *Aceite:* extrai texto de PDF de teste; trata erro de PDF inválido.
-- **D2 · RF-004: Resumo de arquivo único** (reusa camada LLM; persiste em
-  `summaries`). *Aceite:* gera e armazena resumo; < 30 s com provedor de nuvem.
-- **D3 · RF-005: Resumo consolidado** (map-reduce sobre múltiplos PDFs; persiste).
+- **D2 · RF-004: Resumo de arquivo único** (job assíncrono; reusa camada LLM;
+  persiste em `summaries`; progresso via SSE).
+  *Aceite:* gera e armazena resumo; < 30 s com provedor de nuvem; não bloqueia a API.
+- **D3 · RF-005: Resumo consolidado** (map-reduce sobre múltiplos PDFs: resumo
+  parcial por doc → síntese final; reusa chunking/sumarização da issue #31).
   *Aceite:* resumo consolidado coerente de ≥ 2 arquivos; armazenado.
 
 ### EPIC E — Dashboard (RF-006)
@@ -105,11 +116,17 @@ modelo; Ollama local pode ser lento — considerar Groq/Gemini para a métrica).
   visualização de documentos e resumos). *Aceite:* fluxo completo navegável pós-login.
 
 ### EPIC F — Infraestrutura AWS (INF-001/002/003)
-- **F1 · VPC dedicada** (subnets pública/privada, rotas) — IaC (Terraform) ou
-  runbook manual. *Aceite:* VPC documentada e reprodutível.
-- **F2 · Security groups** (80/443 abertos, SSH restrito por IP). *Aceite:* regras descritas/aplicadas.
-- **F3 · EC2 + deploy** (instância, docker-compose em produção, acesso público).
-  *Aceite:* app acessível via Internet; README de deploy.
+> **Reaproveitar** a branch `copilot/fix-deploy-na-ec2` (endurece o probe SSH do
+> `cd.yml`) e o pipeline GHCR→EC2 existente, em vez de reescrever.
+- **F1 · VPC dedicada** (subnet pública p/ EC2/nginx, subnet privada p/ banco;
+  rotas + IGW) — IaC (Terraform) ou runbook manual. *Aceite:* VPC documentada e reprodutível.
+- **F2 · Security groups + segredos + HTTPS** (80/443 abertos; **SSH restrito por
+  IP**; **segredos em SSM Parameter Store**, não em `.env`; **IAM Role** na EC2
+  p/ S3; TLS via Let's Encrypt/Caddy no nginx).
+  *Aceite:* regras aplicadas; segredos fora do disco; 443 servindo HTTPS.
+- **F3 · EC2 + deploy** (instância `t3.small/medium`; **Elastic IP** p/ endereço
+  estável entre stop/start; docker-compose em produção; health check + rollback).
+  *Aceite:* app acessível via Internet; README de deploy; deploy reflete `main`.
 
 ### EPIC G — Entregáveis e qualidade
 - **G1 · README de instalação/deploy** (local + AWS) e doc de arquitetura (opcional).
@@ -125,14 +142,27 @@ A1 ──► D2
 
 ---
 
-## 4. Riscos / decisões em aberto
-- **Storage de PDFs:** filesystem/volume no EC2 vs S3. S3 é mais alinhado a AWS,
-  mas adiciona credenciais/SDK. Decidir em C1.
-- **Métrica < 30 s:** Ollama local pode estourar; usar Groq/Gemini em produção.
-- **Unificação de branches:** mesclar `feat/adk-ollama-litellm` na `dev` e decidir
-  o destino de `main` (está defasada). Ver MEMORY: estrutura de branches.
-- **Tamanho de contexto:** PDFs de 50 MB geram muito texto — reaproveitar a
-  estratégia de sumarização/chunking da issue #31 onde fizer sentido.
+## 4. Pretensões de arquitetura (decididas)
+Síntese das decisões que sofisticam o protótipo dentro do custo "EC2 só para demo":
+- **Storage:** S3 + presigned URLs + IAM Role (upload do browser direto p/ S3).
+- **Resumo:** jobs assíncronos (`jobs` table) com progresso via SSE; Groq como
+  provedor primário para a métrica < 30 s; Ollama só em dev.
+- **Rede:** VPC com subnet pública (app) + privada (banco); banco em container
+  agora, **RDS em subnet privada** documentado como evolução de produção.
+- **Segurança:** SSH restrito por IP; segredos em **SSM Parameter Store**; **IAM
+  Role** na EC2 (sem access key); HTTPS (Let's Encrypt/Caddy); validação por
+  *magic bytes* `%PDF`.
+- **CI/CD e custo:** pipeline GHCR→EC2 existente + health check/rollback; Elastic
+  IP; opcional EventBridge+Lambda p/ ligar/desligar a instância.
+
+## 4.1. Riscos / pendências
+- ⚠️ **Deploy aponta para `main`, mas o código vive em `dev`** (e `main` está
+  defasada, sem `llm.py`). **Reconciliar `dev → main`** antes de qualquer deploy.
+- **Métrica < 30 s:** depende do provedor e do tamanho do PDF; medir cedo.
+- **Branches a integrar:** `feat/adk-ollama-litellm` (PR → dev), `testes` (suíte
+  de API), `copilot/fix-deploy-na-ec2` (deploy). Ver MEMORY: estrutura de branches.
+- **Custo de S3/RDS:** S3 é barato; RDS cobra ocioso — por isso banco em container
+  no protótipo.
 
 ---
 
