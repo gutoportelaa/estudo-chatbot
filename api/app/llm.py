@@ -97,6 +97,7 @@ async def stream_openai_compatible(
             settings=settings,
             summarizer=summarizer,
             summarizer_model=summarizer_model,
+            model=model,
         )
 
     full_text = ""

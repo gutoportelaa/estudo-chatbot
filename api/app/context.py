@@ -5,7 +5,13 @@ Estratégia híbrida (issue #31):
     mensagens antigas (fora da janela) ── LLM resumidor ──► resumo persistido
     últimas N mensagens ───────────────────────────────────► entram verbatim
 
-O montador final entrega: ``system + [memória/resumo] + recentes``.
+O montador final entrega: ``system + [memória/resumo] + recentes``
+
+ContextBudget (issue #30):
+
+    Garante que o prompt total respeite o limite do modelo. Blocos ordenados
+    do mais estável ao mais dinâmico (prefixo estável ↔ prefix caching).
+    Política de corte: tool → rag → recentes → resumo (system nunca é cortado).
 
 A lógica de planejamento (`plan_history`) é **pura** — sem I/O — para ser
 testável de forma determinística. A orquestração (`assemble_messages`) cuida do
@@ -34,6 +40,26 @@ Summarizer = Callable[[str | None, list[dict[str, str]]], Awaitable[str]]
 # Rótulo do bloco de "memória" injetado como contexto do sistema.
 MEMORY_HEADER = "[Memória da conversa — resumo do histórico anterior]"
 
+# Janelas de contexto por modelo (tokens). Usado pelo ContextBudget.
+_CONTEXT_WINDOWS: dict[str, int] = {
+    # Google Gemini
+    "gemini-2.5-flash": 1_048_576,
+    "gemini-2.5-pro": 1_048_576,
+    "gemini-2.0-flash": 1_048_576,
+    "gemini-1.5-flash": 1_048_576,
+    "gemini-1.5-pro": 2_097_152,
+    # Groq / Meta Llama
+    "llama-3.1-8b-instant": 131_072,
+    "llama-3.3-70b-versatile": 131_072,
+    "llama3-8b-8192": 8_192,
+    # Ollama (modelos locais comuns)
+    "llama3.2": 131_072,
+    "llama3.2:3b": 131_072,
+    "mistral": 32_768,
+    "qwen2.5": 131_072,
+}
+_DEFAULT_CONTEXT_WINDOW = 32_768
+
 
 def estimate_tokens(text: str) -> int:
     """Estimativa barata de tokens (~4 caracteres por token).
@@ -43,6 +69,169 @@ def estimate_tokens(text: str) -> int:
     if not text:
         return 0
     return max(1, len(text) // 4)
+
+
+def _messages_tokens(messages: list[dict[str, str]]) -> int:
+    return sum(estimate_tokens(m.get("content", "")) for m in messages)
+
+
+# ---------------------------------------------------------------------------
+# ContextBudget — issue #30
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ContextBudget:
+    """Gerencia o orçamento de tokens do prompt.
+
+    Garante que ``tokens(prompt) <= context_window - reserve_output``.
+    Blocos montados na ordem estável→dinâmico (friendly para prefix caching):
+
+        system → resumo/memória → hits de RAG → últimas N mensagens → tool output
+
+    Política de corte (quando o orçamento estoura):
+        1. tool_output é truncado
+        2. rag_hits são removidos (do último para o primeiro)
+        3. recent é encurtado (remove as mais antigas da janela)
+        4. resumo é truncado em último caso
+        (system nunca é cortado)
+    """
+
+    model: str = ""
+    reserve_output: int = 1024  # tokens reservados para a resposta do LLM
+
+    @property
+    def context_window(self) -> int:
+        """Janela de contexto do modelo em tokens."""
+        if self.model in _CONTEXT_WINDOWS:
+            return _CONTEXT_WINDOWS[self.model]
+        # Tenta match por prefixo (ex: "llama3.2:3b" → "llama3.2")
+        base = self.model.split(":")[0]
+        for key, val in _CONTEXT_WINDOWS.items():
+            if key.startswith(base) or base.startswith(key):
+                return val
+        return _DEFAULT_CONTEXT_WINDOW
+
+    @property
+    def budget(self) -> int:
+        return max(1, self.context_window - self.reserve_output)
+
+    def assemble(
+        self,
+        *,
+        system: str,
+        summary: str | None = None,
+        rag_hits: list[dict[str, str]] | None = None,
+        recent: list[dict[str, str]],
+        tool_output: str | None = None,
+    ) -> list[dict[str, str]]:
+        """Monta os blocos do prompt respeitando o orçamento.
+
+        Retorna a lista final de mensagens prontas para o LLM.
+        Emite um log estruturado com a quebra de tokens por bloco.
+        """
+        rag_hits = list(rag_hits or [])
+        recent = list(recent)
+
+        # Os blocos rotulados ganham um cabeçalho em `_build_blocks`; contamos o
+        # overhead do rótulo aqui para que a garantia valha sobre o que de fato
+        # é emitido, não só sobre o conteúdo cru.
+        tokens_system = estimate_tokens(system)
+        t_summary = estimate_tokens(summary or "")
+        if summary:
+            t_summary += estimate_tokens(f"{MEMORY_HEADER}\n")
+        t_rag = _messages_tokens(rag_hits)
+        if rag_hits:
+            t_rag += estimate_tokens("[Trechos relevantes do material]\n")
+        t_recent = _messages_tokens(recent)
+        t_tool = estimate_tokens(tool_output or "")
+        if tool_output:
+            t_tool += estimate_tokens("[Saída de ferramenta]\n")
+
+        def _over() -> int:
+            return (tokens_system + t_summary + t_rag + t_recent + t_tool) - self.budget
+
+        # --- Política de corte ---
+        # 1. Truncar tool_output
+        if _over() > 0 and tool_output:
+            keep_chars = max(0, len(tool_output) - _over() * 4)
+            tool_output = tool_output[:keep_chars] if keep_chars else None
+            t_tool = estimate_tokens(tool_output or "")
+
+        # 2. Remover rag_hits (do último ao primeiro)
+        while _over() > 0 and rag_hits:
+            removed = rag_hits.pop()
+            t_rag -= estimate_tokens(removed.get("content", ""))
+
+        # 3. Encurtar recent (remove as mais antigas)
+        while _over() > 0 and len(recent) > 1:
+            removed = recent.pop(0)
+            t_recent -= estimate_tokens(removed.get("content", ""))
+
+        # 3b. Último recurso na janela: truncar o conteúdo da mensagem restante
+        # quando uma única mensagem recente, sozinha, já estoura o orçamento.
+        if _over() > 0 and recent:
+            content = recent[-1].get("content", "")
+            keep_chars = max(0, len(content) - _over() * 4)
+            recent[-1] = {**recent[-1], "content": content[:keep_chars]}
+            t_recent = _messages_tokens(recent)
+
+        # 4. Truncar resumo
+        if _over() > 0 and summary:
+            keep_chars = max(0, len(summary) - _over() * 4)
+            summary = summary[:keep_chars] if keep_chars else None
+            t_summary = estimate_tokens(summary or "")
+
+        final_tokens = tokens_system + t_summary + t_rag + t_recent + t_tool
+
+        logger.info(
+            "context_budget model=%s window=%d budget=%d "
+            "tokens_system=%d tokens_summary=%d tokens_rag=%d "
+            "tokens_recent=%d tokens_tool=%d tokens_total=%d",
+            self.model or "(default)",
+            self.context_window,
+            self.budget,
+            tokens_system,
+            t_summary,
+            t_rag,
+            t_recent,
+            t_tool,
+            final_tokens,
+        )
+
+        return _build_blocks(
+            system=system,
+            summary=summary,
+            rag_hits=rag_hits,
+            recent=recent,
+            tool_output=tool_output,
+        )
+
+
+def _build_blocks(
+    *,
+    system: str,
+    summary: str | None,
+    rag_hits: list[dict[str, str]],
+    recent: list[dict[str, str]],
+    tool_output: str | None,
+) -> list[dict[str, str]]:
+    """Monta a lista de mensagens na ordem canônica de blocos."""
+    out: list[dict[str, str]] = [{"role": "system", "content": system}]
+    if summary:
+        out.append({"role": "system", "content": f"{MEMORY_HEADER}\n{summary}"})
+    if rag_hits:
+        combined = "\n\n".join(m.get("content", "") for m in rag_hits)
+        out.append({"role": "system", "content": f"[Trechos relevantes do material]\n{combined}"})
+    out.extend(recent)
+    if tool_output:
+        out.append({"role": "system", "content": f"[Saída de ferramenta]\n{tool_output}"})
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Histórico (issue #31) — planejamento puro
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -130,13 +319,20 @@ def build_messages(
     system_prompt: str,
     summary: str | None,
     recent: list[Message],
+    model: str = "",
 ) -> list[dict[str, str]]:
-    """Monta a lista final: system + bloco de memória (resumo) + recentes."""
-    out: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-    if summary:
-        out.append({"role": "system", "content": f"{MEMORY_HEADER}\n{summary}"})
-    out.extend({"role": m.role, "content": m.content} for m in recent)
-    return out
+    """Monta a lista final via ContextBudget: system + bloco de memória + recentes.
+
+    Aceita ``model`` para registrar o log de tokens correto por turno.
+    """
+    recent_dicts = [{"role": m.role, "content": m.content} for m in recent]
+    budget = ContextBudget(model=model)
+    return budget.assemble(system=system_prompt, summary=summary, recent=recent_dicts)
+
+
+# ---------------------------------------------------------------------------
+# I/O: carga de histórico, sumarização e persistência
+# ---------------------------------------------------------------------------
 
 
 async def _latest_summary(db: AsyncSession, session_id: str) -> ConversationSummary | None:
@@ -166,11 +362,14 @@ async def assemble_messages(
     settings: Settings,
     summarizer: Summarizer | None = None,
     summarizer_model: str = "",
+    model: str = "",
 ) -> list[dict[str, str]]:
     """Carrega o histórico, aplica a estratégia e devolve as mensagens do prompt.
 
     Quando há mensagens fora da janela acima do limiar e um ``summarizer`` é
     fornecido, gera/atualiza o resumo e persiste a compactação (auditoria).
+
+    O ``model`` é repassado ao ``ContextBudget`` para o log de tokens correto.
     """
     rows = list(
         (
@@ -206,6 +405,7 @@ async def assemble_messages(
                 system_prompt=system_prompt,
                 summary=prior_summary,
                 recent=plan.to_summarize + plan.recent,
+                model=model,
             )
 
         if new_summary:
@@ -249,7 +449,13 @@ async def assemble_messages(
         system_prompt=system_prompt,
         summary=summary_text,
         recent=plan.recent,
+        model=model,
     )
+
+
+# ---------------------------------------------------------------------------
+# Fábrica de resumidor (OpenAI-compatível)
+# ---------------------------------------------------------------------------
 
 
 def build_summarizer(
