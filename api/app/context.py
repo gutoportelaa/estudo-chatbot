@@ -75,6 +75,22 @@ def _messages_tokens(messages: list[dict[str, str]]) -> int:
     return sum(estimate_tokens(m.get("content", "")) for m in messages)
 
 
+@dataclass
+class TokenBreakdown:
+    """Quebra de tokens do prompt por bloco (após a política de corte).
+
+    Insumo da observabilidade (issue #37): permite responder, por turno, "onde
+    foram os tokens?". Os campos somam ``total`` (os tokens de entrada).
+    """
+
+    system: int = 0
+    summary: int = 0
+    rag: int = 0
+    recent: int = 0
+    tool: int = 0
+    total: int = 0
+
+
 # ---------------------------------------------------------------------------
 # ContextBudget — issue #30
 # ---------------------------------------------------------------------------
@@ -99,6 +115,8 @@ class ContextBudget:
 
     model: str = ""
     reserve_output: int = 1024  # tokens reservados para a resposta do LLM
+    # Preenchido a cada ``assemble`` com a quebra final por bloco (issue #37).
+    breakdown: TokenBreakdown | None = field(default=None, init=False, repr=False, compare=False)
 
     @property
     def context_window(self) -> int:
@@ -183,6 +201,15 @@ class ContextBudget:
             t_summary = estimate_tokens(summary or "")
 
         final_tokens = tokens_system + t_summary + t_rag + t_recent + t_tool
+
+        self.breakdown = TokenBreakdown(
+            system=tokens_system,
+            summary=t_summary,
+            rag=t_rag,
+            recent=t_recent,
+            tool=t_tool,
+            total=final_tokens,
+        )
 
         logger.info(
             "context_budget model=%s window=%d budget=%d "
@@ -314,6 +341,20 @@ def plan_history(
     )
 
 
+def _assemble_metered(
+    *,
+    system_prompt: str,
+    summary: str | None,
+    recent: list[Message],
+    model: str,
+) -> tuple[list[dict[str, str]], TokenBreakdown]:
+    """Monta o prompt e devolve também a quebra de tokens por bloco (issue #37)."""
+    recent_dicts = [{"role": m.role, "content": m.content} for m in recent]
+    budget = ContextBudget(model=model)
+    messages = budget.assemble(system=system_prompt, summary=summary, recent=recent_dicts)
+    return messages, budget.breakdown or TokenBreakdown()
+
+
 def build_messages(
     *,
     system_prompt: str,
@@ -325,9 +366,10 @@ def build_messages(
 
     Aceita ``model`` para registrar o log de tokens correto por turno.
     """
-    recent_dicts = [{"role": m.role, "content": m.content} for m in recent]
-    budget = ContextBudget(model=model)
-    return budget.assemble(system=system_prompt, summary=summary, recent=recent_dicts)
+    messages, _ = _assemble_metered(
+        system_prompt=system_prompt, summary=summary, recent=recent, model=model
+    )
+    return messages
 
 
 # ---------------------------------------------------------------------------
@@ -363,13 +405,14 @@ async def assemble_messages(
     summarizer: Summarizer | None = None,
     summarizer_model: str = "",
     model: str = "",
-) -> list[dict[str, str]]:
-    """Carrega o histórico, aplica a estratégia e devolve as mensagens do prompt.
+) -> tuple[list[dict[str, str]], TokenBreakdown]:
+    """Carrega o histórico, aplica a estratégia e devolve ``(mensagens, quebra)``.
 
     Quando há mensagens fora da janela acima do limiar e um ``summarizer`` é
     fornecido, gera/atualiza o resumo e persiste a compactação (auditoria).
 
-    O ``model`` é repassado ao ``ContextBudget`` para o log de tokens correto.
+    O ``model`` é repassado ao ``ContextBudget`` para o log de tokens correto; a
+    ``TokenBreakdown`` retornada alimenta a observabilidade do turno (issue #37).
     """
     rows = list(
         (
@@ -401,7 +444,7 @@ async def assemble_messages(
         except Exception:  # pragma: no cover - resiliência: não quebra o chat
             logger.exception("Falha ao sumarizar histórico da sessão %s", session_id)
             # Sem resumo novo: mantém as mensagens verbatim para não perder contexto.
-            return build_messages(
+            return _assemble_metered(
                 system_prompt=system_prompt,
                 summary=prior_summary,
                 recent=plan.to_summarize + plan.recent,
@@ -445,7 +488,7 @@ async def assemble_messages(
             )
             summary_text = new_summary
 
-    return build_messages(
+    return _assemble_metered(
         system_prompt=system_prompt,
         summary=summary_text,
         recent=plan.recent,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
@@ -13,6 +14,7 @@ from .config import get_settings
 from .database import AsyncSessionLocal
 from .models import Message
 from .models import Session as SessionRow
+from .observability import TurnMetrics, estimate_cost, log_turn
 
 _PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     "groq": {
@@ -83,6 +85,7 @@ async def stream_openai_compatible(
 
     async with AsyncSessionLocal() as db:
         session_row = await db.get(SessionRow, session_id)
+        user_id = session_row.user_id if session_row else None
         if session_row and session_row.title is None:
             compact = " ".join(content.split())
             session_row.title = compact[:120] or None
@@ -90,7 +93,7 @@ async def stream_openai_compatible(
         db.add(Message(session_id=session_id, role="user", content=content, created_at=now))
         await db.commit()
 
-        messages = await context.assemble_messages(
+        messages, breakdown = await context.assemble_messages(
             db,
             session_id=session_id,
             system_prompt=settings.system_prompt,
@@ -101,6 +104,7 @@ async def stream_openai_compatible(
         )
 
     full_text = ""
+    started = time.monotonic()
 
     try:
         async for chunk in await client.chat.completions.create(
@@ -115,6 +119,27 @@ async def stream_openai_compatible(
         return
 
     yield "data: [DONE]\n\n"
+
+    # Observabilidade do turno (issue #37): quebra de tokens por bloco + saída,
+    # latência e custo estimado. Emitido como log estruturado (JSON).
+    output_tokens = context.estimate_tokens(full_text)
+    log_turn(
+        TurnMetrics(
+            session_id=session_id,
+            model=model,
+            provider=provider,
+            user_id=user_id,
+            tokens_system=breakdown.system,
+            tokens_summary=breakdown.summary,
+            tokens_rag=breakdown.rag,
+            tokens_recent=breakdown.recent,
+            tokens_tool=breakdown.tool,
+            input_tokens=breakdown.total,
+            output_tokens=output_tokens,
+            latency_ms=round((time.monotonic() - started) * 1000, 1),
+            cost_usd=estimate_cost(model, breakdown.total, output_tokens),
+        )
+    )
 
     async with AsyncSessionLocal() as db:
         session_row = await db.get(SessionRow, session_id)
