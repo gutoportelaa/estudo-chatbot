@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     # Modelo usado para sumarizar (vazio = mesmo modelo do chat).
     summarizer_model: str = ""
 
+    # ----- Contrato de contexto para ferramentas (tool-output budgeting) -----
+    # Cota de tokens que a saída das ferramentas pode ocupar no prompt; o
+    # conteúdo cru acima disso vira artefato recuperável (S3/DB/RAG), não prompt.
+    tool_output_max_tokens: int = 2000
+
     # ----- Context Compaction nativo do ADK (caminho Gemini) -----
     adk_compaction_enabled: bool = False
     adk_compaction_interval: int = 4
