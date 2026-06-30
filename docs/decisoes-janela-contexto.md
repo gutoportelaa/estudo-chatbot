@@ -19,7 +19,7 @@ sobre essa fundação negociando cotas, em vez de injetar conteúdo livremente.
 | #30 | Context Assembler + orçamento de tokens | **Concluída** (branch `feat/context-budget` → `dev`) |
 | #31 | Histórico: janela deslizante + sumarização | Concluída anteriormente |
 | #32 | Contrato de contexto para ferramentas | **Concluída** (branch `feat/tool-context-contract` → `dev`) |
-| #37 | Observabilidade de tokens/custo por turno | Pendente (já alimentada pelos logs de #30) |
+| #37 | Observabilidade de tokens/custo por turno | **Concluída** (branch `feat/token-observability` → `dev`) |
 
 ---
 
@@ -132,9 +132,67 @@ busca, plotação): nenhuma delas injeta conteúdo cru no prompt.
 
 ---
 
+## #37 — Observabilidade de tokens e custo por turno
+
+**Onde:** `api/app/observability.py` (`TurnMetrics`, `estimate_cost`,
+`log_turn`, `configure_logging`); quebra por bloco vinda do `TokenBreakdown` do
+Context Assembler; emissão em `api/app/llm.py`; logging ligado em `app/main.py`.
+
+### Decisões
+
+- **Log estruturado (JSON numa linha) por turno**, prefixado por `turn_metrics`,
+  com: `session_id`, `user_id`, `model`, `provider`, quebra por bloco
+  (`tokens_system/summary/rag/recent/tool`), `input_tokens`, `output_tokens`,
+  `latency_ms` e `cost_usd`. O prefixo facilita filtro/parsing num coletor
+  (CloudWatch Logs Insights, Grafana/Loki) sem precisar de schema. **Alternativa
+  descartada:** persistir métricas em tabela própria — adia para quando houver
+  dashboard; por ora o log estruturado já responde "onde foram os tokens?".
+
+- **Quebra de tokens reaproveitada do Context Assembler.** O `ContextBudget`
+  passou a expor um `TokenBreakdown` (valores **pós-corte**); `assemble_messages`
+  devolve `(mensagens, quebra)` e o `llm.py` monta o `TurnMetrics`. Evita
+  recontar tokens ou reparsear o prompt montado.
+
+- **Custo estimado por tabela de preços por modelo** (`MODEL_PRICING`, USD por 1M
+  de tokens, entrada/saída), com match exato/por prefixo e **default zero**
+  (modelos locais/desconhecidos não custam). É estimativa — a fonte de verdade de
+  faturamento é o provedor; aqui o objetivo é ordem de grandeza e base para
+  *rate limiting* futuro.
+
+- **Tokens por heurística (chars/4), não usage do provedor.** Mantém consistência
+  com o resto do sistema e funciona igual em qualquer provedor (Ollama não
+  devolve `usage` no stream). A captura do `usage` real pode ser plugada depois
+  sem mudar o formato do log.
+
+- **`configure_logging` idempotente, com `propagate=False`.** Sem configurar o
+  nível, o default (WARNING) engoliria os logs de tokens/turno. Isola os loggers
+  `thinkai.*` num handler próprio.
+
+### Escopo
+
+Instrumenta o **caminho OpenAI-compat** (`stream_openai_compatible` —
+Groq/OpenRouter/Ollama), que é o que passa pelo Context Assembler e o ambiente
+testável (Ollama). O **caminho ADK/Gemini** (`_stream_adk`) não passa por
+`assemble_messages` (usa compaction nativa do ADK) e tem `usage` próprio do
+provedor — sua instrumentação é um *follow-up* separado, não estimável às cegas.
+
+### Critério de aceite
+
+- ✅ Para qualquer turno, dá para responder "onde foram os tokens?" — validado
+  end-to-end com Ollama (`llama3.2:3b`): o log `turn_metrics` saiu com a quebra
+  por bloco, totais de entrada/saída, latência e custo.
+- ✅ Custo por usuário/sessão disponível no log (`user_id`/`session_id` +
+  `cost_usd`) — base para *rate limiting*.
+- ⏳ Dashboard/CloudWatch: o log estruturado é o insumo; agregação visual fica
+  para a fase AWS (#49/#50).
+
+---
+
 ## Pendências do épico
 
-- **#37 — observabilidade:** os logs por turno (#30) e o campo `tokens` do
-  `ToolResult` (#32) já são os insumos; falta agregação/dashboard.
+- **Dashboard de #37:** o log estruturado já existe; falta a agregação visual
+  (CloudWatch Logs Insights/Grafana) na fase AWS.
+- **Instrumentar o caminho ADK/Gemini** com o mesmo formato `turn_metrics`,
+  usando o `usage` nativo do ADK.
 - **#33–#35 — ferramentas:** extração (PDF/imagem), RAG (pgvector) e busca web.
   Cada uma adota o `ToolResult` e negocia sua cota com o Context Assembler.

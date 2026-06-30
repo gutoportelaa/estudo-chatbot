@@ -8,12 +8,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import models  # noqa: F401 — registra os modelos antes do create_all
 from .config import get_settings
 from .database import Base, engine
+from .observability import configure_logging
 from .routers import auth as auth_router
 from .routers import chat as chat_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Habilita os logs estruturados de tokens/turno (issue #37); sem isso o
+    # nível default (WARNING) engoliria a observabilidade do contexto.
+    configure_logging()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
