@@ -120,6 +120,10 @@ class Document(Base):
     storage_key: Mapped[str] = mapped_column(String(512), nullable=False)
     # Páginas do PDF (preenchido na extração; pode ser nulo até processar).
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Extração de texto (issue #33): "pending" | "done" | "failed".
+    extraction_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    # Chave do artefato de texto extraído (storage); nulo até extrair.
+    extracted_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     user: Mapped["User"] = relationship(back_populates="documents")

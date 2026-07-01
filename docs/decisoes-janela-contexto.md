@@ -188,11 +188,65 @@ provedor — sua instrumentação é um *follow-up* separado, não estimável à
 
 ---
 
+## #33 — Extração de material (PDF/imagem), primeira ferramenta
+
+**Onde:** `api/app/tools/extraction.py` (`extract_pdf`, `OcrEngine`,
+`TesseractOcr`/`TextractOcr`, `get_ocr_engine`); endpoint
+`POST /documents/{id}/extract` em `app/routers/documents.py`; colunas
+`extraction_status`/`extracted_key` em `Document` (migration
+`d4f2a1b7c9e3`). Primeira ferramenta a **adotar o contrato da #32**.
+
+### Decisões
+
+- **Reusa o modelo `Document` (C1), não cria um `Material` paralelo.** A issue
+  falava em `Material(owner, s3_key, status)`; o `Document` já tem owner +
+  `storage_key` + `page_count`. Adicionei só `extraction_status`
+  (`pending`/`done`/`failed`) e `extracted_key` — o "status" que a issue pedia.
+  **Pré-requisito:** o C1 (upload/storage) foi mergeado em `dev` antes desta
+  issue para haver base coerente.
+
+- **PyMuPDF para PDF nativo; OCR só por *fallback* heurístico.** Se o texto
+  nativo tem menos que `extraction_ocr_min_chars_per_page` por página, assume-se
+  escaneado e renderiza-se cada página para imagem → OCR. Evita rodar OCR
+  (~1000× mais lento) quando há texto direto. ⚠️ PyMuPDF é **AGPL** — reavaliar
+  `pypdf`/`pdfplumber` se o produto virar SaaS fechado.
+
+- **OCR atrás da interface `OcrEngine`, trocável por config** (`ocr_engine`:
+  `tesseract` local ↔ `textract` AWS). Imports tardios: o módulo carrega sem o
+  binário/serviço. Atende o critério "trocar Tesseract↔Textract sem alterar as
+  chamadas".
+
+- **O texto extraído nunca volta cru ao contexto.** O texto completo é
+  persistido como artefato no storage (`extracted_key`, um `.txt` irmão do PDF);
+  ao contexto vai só um resumo dentro da cota, via `fit_to_budget` (#32),
+  com `artifact_ref = document_id`. Um PDF de 80 páginas entra no prompt como um
+  preview truncado, não inteiro. O texto completo fica pronto para o RAG (#34).
+
+- **Extração roda em threadpool.** PyMuPDF/OCR são CPU-bound e bloqueantes;
+  `run_in_threadpool` evita travar o event loop. Na entrega, OCR pesado deve ir
+  para job assíncrono (SQS + worker).
+
+### Critério de aceite
+
+- ✅ PDF nativo e PDF escaneado produzem texto correto pelos dois engines —
+  validado com PDFs gerados em teste, incluindo *round-trip* real de OCR com
+  Tesseract 5.3.
+- ✅ Troca de engine por configuração, sem mudar as chamadas.
+- ✅ PDF grande não entra inteiro no prompt: o resumo respeita
+  `tool_output_max_tokens` (teste do PDF de 80 páginas).
+
+---
+
 ## Pendências do épico
 
 - **Dashboard de #37:** o log estruturado já existe; falta a agregação visual
   (CloudWatch Logs Insights/Grafana) na fase AWS.
 - **Instrumentar o caminho ADK/Gemini** com o mesmo formato `turn_metrics`,
   usando o `usage` nativo do ADK.
-- **#33–#35 — ferramentas:** extração (PDF/imagem), RAG (pgvector) e busca web.
-  Cada uma adota o `ToolResult` e negocia sua cota com o Context Assembler.
+- **#34–#35 — ferramentas:** RAG (pgvector, consome o `extracted_key` da #33) e
+  busca web. Cada uma adota o `ToolResult` e negocia sua cota.
+- **Débito de migrations (unificação B1):** a migration da B1 (`78f6acf9771a`)
+  é WIP não-commitado em `feat/c1`, com `down_revision = c3a8e1f04b21` — o mesmo
+  pai da migration desta issue (`d4f2a1b7c9e3`). Ao unificar a B1 em `dev` haverá
+  dois heads a partir de `c3a8`; reparentar uma das migrations (ou usar um merge
+  de alembic) na unificação.

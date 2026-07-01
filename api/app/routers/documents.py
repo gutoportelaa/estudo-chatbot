@@ -13,6 +13,8 @@ from ..config import get_settings
 from ..database import get_db
 from ..models import Document, User
 from ..storage import build_key, get_storage
+from ..tools import fit_to_budget
+from ..tools.extraction import extract_pdf, get_ocr_engine
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -43,6 +45,7 @@ def _to_dict(doc: Document) -> dict:
         "size_bytes": doc.size_bytes,
         "content_type": doc.content_type,
         "page_count": doc.page_count,
+        "extraction_status": doc.extraction_status,
         "created_at": doc.created_at.isoformat(),
     }
 
@@ -91,6 +94,68 @@ async def list_documents(
         .order_by(Document.created_at.desc())
     )
     return [_to_dict(d) for d in result.scalars().all()]
+
+
+@router.post("/{document_id}/extract")
+async def extract_document(
+    document_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Extrai o texto de um documento (PyMuPDF nativo, OCR se escaneado — #33).
+
+    O texto completo é persistido como artefato recuperável (storage); só um
+    resumo dentro da cota entra no contexto (contrato de ferramentas, #32). A
+    extração roda em threadpool por ser CPU-bound/bloqueante.
+    """
+    settings = get_settings()
+    doc = await db.get(Document, document_id)
+    if not doc or doc.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
+
+    storage = get_storage()
+    try:
+        data = await run_in_threadpool(storage.load, doc.storage_key)
+        ocr = get_ocr_engine(settings)
+        result = await run_in_threadpool(
+            extract_pdf,
+            data,
+            ocr=ocr,
+            ocr_min_chars_per_page=settings.extraction_ocr_min_chars_per_page,
+        )
+    except Exception as exc:  # extração falhou: registra e sinaliza sem quebrar
+        doc.extraction_status = "failed"
+        await db.commit()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Falha na extração: {exc}")
+
+    # Persiste o texto completo como artefato (nunca vai cru ao contexto).
+    text_key = doc.storage_key.rsplit(".", 1)[0] + ".txt"
+    await run_in_threadpool(storage.save, text_key, result.text.encode("utf-8"))
+
+    doc.page_count = result.page_count
+    doc.extracted_key = text_key
+    doc.extraction_status = "done"
+    await db.commit()
+    await db.refresh(doc)
+
+    # Resumo dentro da cota da ferramenta; o texto completo fica no artefato.
+    tool = fit_to_budget(
+        result.text,
+        artifact_ref=doc.id,
+        max_tokens=settings.tool_output_max_tokens,
+    )
+    return {
+        "document_id": doc.id,
+        "page_count": result.page_count,
+        "engine": result.engine,
+        "ocr_used": result.ocr_used,
+        "chars": len(result.text),
+        "extraction_status": doc.extraction_status,
+        "summary_for_context": tool.summary_for_context,
+        "artifact_ref": tool.artifact_ref,
+        "tokens": tool.tokens,
+        "truncated": tool.truncated,
+    }
 
 
 # ---------------------------------------------------------------------------
