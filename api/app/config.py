@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     # conteúdo cru acima disso vira artefato recuperável (S3/DB/RAG), não prompt.
     tool_output_max_tokens: int = 2000
 
+    # ----- Extração de material (PDF/imagem) — issue #33 -----
+    # Engine de OCR para PDF escaneado/imagem: "tesseract" (local) | "textract" (AWS).
+    ocr_engine: str = "tesseract"
+    # Idiomas do Tesseract (ex.: "por+eng"). Textract detecta automaticamente.
+    ocr_language: str = "por+eng"
+    # Abaixo de ~N chars por página no texto nativo, assume PDF escaneado → OCR.
+    extraction_ocr_min_chars_per_page: int = 100
+
     # ----- Context Compaction nativo do ADK (caminho Gemini) -----
     adk_compaction_enabled: bool = False
     adk_compaction_interval: int = 4
