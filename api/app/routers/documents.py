@@ -15,6 +15,7 @@ from ..models import Document, User
 from ..storage import build_key, get_storage
 from ..tools import fit_to_budget
 from ..tools.extraction import extract_pdf, get_ocr_engine
+from ..tools.rag import get_embedder, index_document
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -156,6 +157,40 @@ async def extract_document(
         "tokens": tool.tokens,
         "truncated": tool.truncated,
     }
+
+
+@router.post("/{document_id}/index")
+async def index_document_endpoint(
+    document_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Indexa o texto extraído para RAG: chunks + embeddings em pgvector (#34).
+
+    Requer extração prévia (``POST /documents/{id}/extract``). Reindexa de forma
+    idempotente (substitui os chunks anteriores do documento).
+    """
+    settings = get_settings()
+    doc = await db.get(Document, document_id)
+    if not doc or doc.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
+    if doc.extraction_status != "done" or not doc.extracted_key:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Documento ainda não foi extraído (rode POST /documents/{id}/extract antes)",
+        )
+
+    storage = get_storage()
+    text = (await run_in_threadpool(storage.load, doc.extracted_key)).decode("utf-8")
+    n_chunks = await index_document(
+        db,
+        get_embedder(settings),
+        document_id=doc.id,
+        user_id=current_user.id,
+        text=text,
+        settings=settings,
+    )
+    return {"document_id": doc.id, "chunks_indexed": n_chunks}
 
 
 # ---------------------------------------------------------------------------

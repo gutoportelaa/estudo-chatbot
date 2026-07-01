@@ -347,11 +347,14 @@ def _assemble_metered(
     summary: str | None,
     recent: list[Message],
     model: str,
+    rag_hits: list[dict[str, str]] | None = None,
 ) -> tuple[list[dict[str, str]], TokenBreakdown]:
     """Monta o prompt e devolve também a quebra de tokens por bloco (issue #37)."""
     recent_dicts = [{"role": m.role, "content": m.content} for m in recent]
     budget = ContextBudget(model=model)
-    messages = budget.assemble(system=system_prompt, summary=summary, recent=recent_dicts)
+    messages = budget.assemble(
+        system=system_prompt, summary=summary, rag_hits=rag_hits, recent=recent_dicts
+    )
     return messages, budget.breakdown or TokenBreakdown()
 
 
@@ -405,11 +408,15 @@ async def assemble_messages(
     summarizer: Summarizer | None = None,
     summarizer_model: str = "",
     model: str = "",
+    rag_hits: list[dict[str, str]] | None = None,
 ) -> tuple[list[dict[str, str]], TokenBreakdown]:
     """Carrega o histórico, aplica a estratégia e devolve ``(mensagens, quebra)``.
 
     Quando há mensagens fora da janela acima do limiar e um ``summarizer`` é
     fornecido, gera/atualiza o resumo e persiste a compactação (auditoria).
+
+    ``rag_hits`` (issue #34) são os trechos recuperados do material; entram no
+    bloco de RAG do prompt, com cota própria de tokens.
 
     O ``model`` é repassado ao ``ContextBudget`` para o log de tokens correto; a
     ``TokenBreakdown`` retornada alimenta a observabilidade do turno (issue #37).
@@ -449,6 +456,7 @@ async def assemble_messages(
                 summary=prior_summary,
                 recent=plan.to_summarize + plan.recent,
                 model=model,
+                rag_hits=rag_hits,
             )
 
         if new_summary:
@@ -493,6 +501,7 @@ async def assemble_messages(
         summary=summary_text,
         recent=plan.recent,
         model=model,
+        rag_hits=rag_hits,
     )
 
 

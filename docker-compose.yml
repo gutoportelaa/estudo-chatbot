@@ -1,6 +1,7 @@
 services:
   db:
-    image: postgres:16-alpine
+    # pgvector/pgvector:pg16 = Postgres 16 + extensão pgvector (RAG, issue #34).
+    image: pgvector/pgvector:pg16
     container_name: thinkai-db
     environment:
       POSTGRES_USER: thinkai
