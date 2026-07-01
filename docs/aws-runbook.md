@@ -86,6 +86,32 @@ Alternativa sem domínio: HTTP na 80 para a demo (a banca aceita, mas 443 pontua
 
 ---
 
+## Componentes adicionais no deploy (#33 extração, #34 RAG)
+
+- **Banco com pgvector.** O `docker-compose.yml` usa a imagem
+  **`pgvector/pgvector:pg16`** (Postgres + extensão `vector`). O RAG (#34) não
+  funciona sem ela. A migration `e5c3d9a2b1f7` roda `CREATE EXTENSION vector`.
+- **Migrations automáticas.** O `Dockerfile` da API roda `alembic upgrade head`
+  antes de subir o uvicorn (single-instance). Num deploy multi-instância, rode as
+  migrations num passo separado. Os arquivos do Alembic já vão na imagem.
+- **Extração de texto (#33).** A imagem da API inclui `tesseract-ocr` (+`-por`).
+  Em produção pode-se preferir **AWS Textract** (`OCR_ENGINE=textract`) — mais
+  acurácia e imagem menor. Requer permissão IAM `textract:DetectDocumentText`
+  (adicionar à policy da EC2 se usar Textract).
+- **Embeddings do RAG (#34) — atenção.** Hoje só o embedder **Ollama** está
+  implementado; `EMBEDDING_PROVIDER=gemini|bedrock` ainda levanta
+  `NotImplementedError`. Para RAG em produção: (a) implementar o embedder
+  gerenciado (Bedrock Titan → permissão `bedrock:InvokeModel`; ou Gemini
+  embeddings), **ou** (b) rodar um Ollama acessível. Sem isso, o chat funciona
+  normalmente, apenas **sem** recuperação de material (o RAG falha em silêncio,
+  por design — nunca quebra o chat).
+- **Config nova em produção** (via SSM/`.env`): `OCR_ENGINE`, `OCR_LANGUAGE`,
+  `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `RAG_TOP_K`, `RAG_MAX_TOKENS`,
+  `TOOL_OUTPUT_MAX_TOKENS`, além de `STORAGE_BACKEND=s3` + `S3_BUCKET`. Ver
+  `.env.example`.
+
+---
+
 ## Mapa serviço → issue
 - **C1**: S3 (bucket) + IAM Role (passos 4–6) + presigned URLs no backend.
 - **F1**: VPC/subnets/IGW/rotas (passo 1).
@@ -98,3 +124,6 @@ Alternativa sem domínio: HTTP na 80 para a demo (a banca aceita, mas 443 pontua
 - [ ] Security groups aplicados; SSH restrito (INF-002)
 - [ ] Integração LLM operacional em produção (RF-TEC-001)
 - [ ] Upload de PDF ≤ 50 MB via S3 (RF-002)
+- [ ] Banco com pgvector no ar e migrations aplicadas (`alembic current` = head)
+- [ ] Extração de texto funcionando (PyMuPDF; OCR via Tesseract ou Textract)
+- [ ] RAG: embedder de produção definido (Bedrock/Gemini) ou aceite explícito de rodar sem RAG

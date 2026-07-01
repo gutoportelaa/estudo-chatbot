@@ -82,6 +82,47 @@ Pipeline automatizado com dois workflows:
 
 PRs com erro de lint ou build são bloqueados automaticamente antes do merge.
 
+### Etapa 8 — Multi-provider LLM + Ollama
+
+O caminho de chat foi generalizado para múltiplos provedores via um cliente
+**OpenAI-compatível** (`app/llm.py`): **Groq**, **OpenRouter** e **Ollama**
+(local), além do caminho **Google ADK/Gemini** (`app/runner.py`,
+`app/adk_runtime.py`). O ambiente de teste passou a usar **Ollama**
+(`llama3.2:3b`), permitindo desenvolver sem chave de API.
+
+### Etapa 9 — Gestão da janela de contexto (épico)
+
+Fundação para escalar o chat além de "só texto". Ver o relatório técnico em
+[`docs/decisoes-janela-contexto.md`](docs/decisoes-janela-contexto.md).
+
+| Issue | Entrega |
+|---|---|
+| #30 | **Context Assembler** (`app/context.py`): orçamento de tokens por modelo, ordem de blocos estável→dinâmico, política de corte |
+| #31 | **Histórico híbrido**: janela deslizante + sumarização incremental (tabela `conversation_summaries`) |
+| #32 | **Contrato de ferramentas** (`app/tools/contract.py`): `ToolResult` — artefato fora do prompt + resumo na cota |
+| #37 | **Observabilidade** (`app/observability.py`): log estruturado de tokens/custo/latência por turno |
+
+### Etapa 10 — Upload de documentos com storage abstraído (C1, RF-002)
+
+`POST /documents` (multipart) e fluxo *presigned* para S3. Abstração
+`StorageBackend` (`app/storage.py`) com backends **local** (dev) e **S3**
+(produção, via IAM Role — sem chave no disco). Modelo `Document` guarda só a
+referência ao binário.
+
+### Etapa 11 — Extração de texto PDF/imagem (#33)
+
+`app/tools/extraction.py`: **PyMuPDF** para PDF nativo e **OCR** atrás da
+interface `OcrEngine` (**Tesseract** local ↔ **AWS Textract**, trocáveis por
+config). O texto extraído vira artefato recuperável; ao contexto vai só um
+resumo dentro da cota (contrato #32).
+
+### Etapa 12 — RAG com embeddings + pgvector (#34)
+
+`app/tools/rag.py`: o texto extraído é dividido em chunks, vetorizado por
+**embeddings** e guardado em **pgvector**. A cada turno, os top-k trechos
+relevantes entram no bloco de RAG do Context Assembler, citando a fonte. Imagem
+do banco: `pgvector/pgvector:pg16`.
+
 ---
 
 ## Arquitetura atual
@@ -96,14 +137,30 @@ PRs com erro de lint ou build são bloqueados automaticamente antes do merge.
 | Gerenciador frontend | **bun** | Instalação e build mais rápidos que npm/yarn |
 | Backend | FastAPI + Python 3.12 | Async nativo, tipagem forte, OpenAPI automático |
 | Gerenciador backend | **uv** | Resolução de dependências mais rápida que pip |
-| LLM | Google Gemini 2.0 Flash | API gratuita (1500 req/dia), sem hardware local |
-| Banco de dados | PostgreSQL 16 | Relacional, robusto, suporte async via asyncpg |
+| LLM (produção) | Google Gemini via **ADK** | API gratuita; ADK = SDK oficial de agentes |
+| LLM (multi-provider) | Groq / OpenRouter / **Ollama** | OpenAI-compat; Ollama p/ dev sem chave |
+| Janela de contexto | Context Assembler próprio | Orçamento de tokens + histórico + RAG (épico) |
+| Banco de dados | PostgreSQL 16 + **pgvector** | Relacional + busca vetorial (RAG) no mesmo banco |
 | ORM | SQLAlchemy async + Alembic | Migrations versionadas, queries tipadas |
+| Extração de PDF | **PyMuPDF** (nativo) + OCR | Tesseract (local) / AWS Textract (prod) |
+| Embeddings | Ollama (dev) → Gemini/Bedrock (prod) | Trocável por config; vetores em pgvector |
+| Armazenamento de arquivos | **S3** (prod) / filesystem (dev) | Abstração `StorageBackend`; IAM Role no S3 |
 | Autenticação | JWT (python-jose + bcrypt) | Stateless, sem dependência de sessão no servidor |
 | Containerização | Docker + Docker Compose | Ambiente idêntico local e produção |
 | Servidor web | nginx:alpine | Serve o build estático do React |
-| Nuvem | AWS EC2 (t2.micro) | Free tier suficiente para o estudo |
+| Nuvem | AWS: VPC + EC2 + S3 (+ Textract/Bedrock) | Free tier / créditos; ver `docs/aws-runbook.md` |
 | CI/CD | GitHub Actions | Lint + build + deploy automático |
+
+### Modelos de dados (atual)
+
+| Modelo | Descrição |
+|---|---|
+| `User` | Usuário (username, hash bcrypt; campos de perfil da B1 em WIP) |
+| `Session` / `Message` | Sessão de chat e mensagens (role user/assistant) |
+| `ConversationSummary` | Resumo do histórico compactado (auditoria da #31) |
+| `Document` | PDF enviado: referência ao storage + `extraction_status`/`extracted_key` |
+| `Chunk` | Trecho vetorizado do documento (`embedding` em pgvector) — RAG |
+| `Summary` / `SummaryDocument` | Resumo (single/consolidado) e associação N:N com documentos |
 
 ### Estrutura de diretórios
 
@@ -115,17 +172,23 @@ estudo-chatbot/
 │       └── cd.yml          # Deploy automático na EC2
 ├── api/                    # Backend Python (uv)
 │   ├── app/
-│   │   ├── main.py         # FastAPI: rotas de auth, session, chat, health
+│   │   ├── main.py         # FastAPI: monta rotas (auth, chat, documents), logging
 │   │   ├── auth.py         # JWT: signup, signin, middleware
-│   │   ├── models.py       # SQLAlchemy: User, Session, Message
-│   │   ├── schemas.py      # Pydantic: request/response DTOs
-│   │   ├── graph.py        # LangGraph: grafo de chat com Gemini
-│   │   ├── chat.py         # Streaming SSE e leitura de histórico
+│   │   ├── models.py       # SQLAlchemy: User, Session, Message, Document, Chunk, Summary...
 │   │   ├── config.py       # Settings via pydantic-settings (.env)
-│   │   └── database.py     # Engine async, sessão e base declarativa
+│   │   ├── database.py     # Engine async, sessão e base declarativa
+│   │   ├── context.py      # Context Assembler: orçamento de tokens + histórico (#30/#31)
+│   │   ├── observability.py# Métricas de tokens/custo por turno (#37)
+│   │   ├── storage.py      # Abstração de storage: local | S3 (C1)
+│   │   ├── llm.py          # Chat OpenAI-compat (Groq/OpenRouter/Ollama) + RAG por turno
+│   │   ├── runner.py       # Caminho ADK/Gemini (+ compaction nativa)
+│   │   ├── adk_runtime.py  # Integração Google ADK
+│   │   ├── routers/        # auth.py, chat.py, documents.py
+│   │   └── tools/          # contract.py (#32), extraction.py (#33), rag.py (#34)
 │   ├── alembic/            # Migrations do banco de dados
+│   ├── tests/              # pytest (contexto, tools, extração, RAG, documents, auth...)
 │   ├── pyproject.toml
-│   └── Dockerfile
+│   └── Dockerfile          # tesseract-ocr + alembic upgrade no start
 ├── web/                    # Frontend React (bun)
 │   ├── src/
 │   │   ├── App.tsx
@@ -136,7 +199,10 @@ estudo-chatbot/
 │   ├── package.json
 │   └── Dockerfile
 ├── docs/
-│   └── diagrama_thinkai.png
+│   ├── diagrama_thinkai.png
+│   ├── aws-runbook.md              # Bootstrap da infra AWS (VPC/SG/S3/IAM/EC2)
+│   ├── inicializacao-local.md      # Bring-up local (Postgres 5433 + Alembic)
+│   └── decisoes-janela-contexto.md # Relatório técnico do épico de contexto
 ├── scripts/
 │   ├── demo_sessions.sh    # Demonstra isolamento de sessões via API
 │   └── setup_ec2.sh        # Automatiza setup de nova instância EC2
@@ -162,12 +228,23 @@ Para manter o escopo do estudo. Refresh tokens e revogação (blacklist) adicion
 **Por que bun e uv?**
 Ambos são alternativas modernas e significativamente mais rápidas aos gerenciadores tradicionais (npm e pip). O ganho é visível especialmente no CI/CD, onde instalar dependências é um passo crítico de performance.
 
+**Por que um Context Assembler próprio?**
+As ferramentas (extração, RAG, busca) injetam volumes grandes no prompt. Antes de plugá-las, foi criada uma camada única (`app/context.py`) que monta o prompt dentro de um **orçamento de tokens** e garante que nenhum turno estoure a janela do modelo. Cada ferramenta negocia uma cota em vez de injetar conteúdo livremente. Ver `docs/decisoes-janela-contexto.md`.
+
+**Por que pgvector e não um serviço vetorial dedicado?**
+Para o RAG (#34), reusar o Postgres existente com a extensão **pgvector** evita custo e infra novos (OpenSearch etc.). A coluna de embedding é *dimensionless* para aceitar qualquer provedor (Ollama no dev; Bedrock Titan/Gemini na entrega) sem migrar o schema.
+
+**Por que abstrair storage e OCR/embeddings atrás de interfaces?**
+`StorageBackend` (local↔S3), `OcrEngine` (Tesseract↔Textract) e `Embedder` (Ollama↔Gemini/Bedrock) permitem rodar tudo localmente no dev (grátis, sem AWS) e trocar para os serviços gerenciados na entrega **apenas por configuração**, sem alterar as chamadas.
+
 ---
 
 ## Pontos de melhoria futura
 
 - Refresh tokens e logout com invalidação
-- Rate limiting na API (ex.: `slowapi`)
-- Testes automatizados (pytest + httpx para backend, Playwright para frontend)
+- Rate limiting na API (ex.: `slowapi`) — o custo por turno (#37) já é o insumo
+- Embedder gerenciado (Gemini/Bedrock) e índice HNSW no pgvector para escalar o RAG
+- Instrumentar o caminho ADK/Gemini com o mesmo `turn_metrics` e montar o dashboard (CloudWatch)
+- Frontend das features: dashboard (#46), listagem/seleção de arquivos (#42), resumos (#44/#45)
 - Elastic IP fixo na EC2 para não perder o endereço ao reiniciar
-- Observabilidade: logs estruturados + métricas (ex.: Prometheus + Grafana)
+- Unificação das branches divergentes (B1 de perfil) e do débito de migrations
