@@ -11,11 +11,14 @@ import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
 import { useTheme } from "./hooks/useTheme";
 import { PreferencesModal } from "./components/PreferencesModal";
+import { ConsumptionModal } from "./components/ConsumptionModal";
+import { MemoryBadge } from "./components/MemoryBadge";
 
 export default function App() {
   const { theme, toggleTheme, colorStart, colorEnd, setColorStart, setColorEnd } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [modelName, setModelName] = useState("");
 
   useEffect(() => {
@@ -151,6 +154,7 @@ export default function App() {
           await sessions.removeSession(id);
         }}
         onOpenPreferences={() => setPrefsOpen(true)}
+        onOpenUsage={() => setUsageOpen(true)}
       />
 
       <PreferencesModal
@@ -161,6 +165,8 @@ export default function App() {
         setColorStart={setColorStart}
         setColorEnd={setColorEnd}
       />
+
+      <ConsumptionModal isOpen={usageOpen} onClose={() => setUsageOpen(false)} />
 
       <div className="window">
         <Header
@@ -173,7 +179,10 @@ export default function App() {
 
         <main className={`content ${hasConversation ? "is-chat" : "is-empty"}`}>
           {hasConversation ? (
-            <MessageList messages={messages} />
+            <>
+              <MemoryBadge sessionId={sessionId} refreshKey={messages.length} />
+              <MessageList messages={messages} />
+            </>
           ) : (
             <div className="welcome">
               <Greeting username={auth.user.username} />

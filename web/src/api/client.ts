@@ -104,6 +104,59 @@ export async function getProfile(): Promise<AuthUser> {
   return req<AuthUser>("/auth/profile");
 }
 
+// ---------- Consumo (métricas de tokens/custo) ----------
+
+export interface UsageTotals {
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  avg_latency_ms: number;
+}
+
+export interface UsageByDay {
+  date: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+export interface UsageByModel {
+  model: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+export interface UsageSummary {
+  days: number;
+  totals: UsageTotals;
+  by_day: UsageByDay[];
+  by_model: UsageByModel[];
+}
+
+export async function getUsage(days = 30): Promise<UsageSummary> {
+  return req<UsageSummary>(`/metrics/usage?days=${days}`);
+}
+
+// ---------- Sumarização do histórico (log de compactações) ----------
+
+export interface SummaryEvent {
+  id: string;
+  covered_message_count: number;
+  source_message_count: number;
+  summary_tokens: number;
+  trigger: string; // "window_overflow" | "recompaction"
+  model: string;
+  created_at: string;
+}
+
+export async function getSummaries(sessionId: string): Promise<SummaryEvent[]> {
+  return req<SummaryEvent[]>(`/sessions/${sessionId}/summaries`);
+}
+
 // ---------- Health ----------
 
 function formatProviderLabel(provider: string, model: string): string {

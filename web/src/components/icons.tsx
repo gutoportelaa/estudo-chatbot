@@ -169,3 +169,13 @@ export function SettingsIcon() {
     </svg>
   );
 }
+
+export function ChartIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M3 3v18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <rect x="7" y="12" width="3" height="5" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/>
+      <rect x="13" y="8" width="3" height="9" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/>
+    </svg>
+  );
+}
