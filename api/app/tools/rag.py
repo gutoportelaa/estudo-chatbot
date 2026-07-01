@@ -20,7 +20,7 @@ import asyncio
 import logging
 from typing import Protocol, runtime_checkable
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import Settings
@@ -72,7 +72,15 @@ def chunk_text(text: str, *, size: int = 1000, overlap: int = 150) -> list[str]:
 
 @runtime_checkable
 class Embedder(Protocol):
-    """Contrato de embeddings: texto(s) → vetor(es)."""
+    """Contrato de embeddings: texto(s) → vetor(es).
+
+    ``provider``/``model_id`` identificam o espaço vetorial: embeddings de
+    modelos diferentes não são comparáveis, então essa proveniência é gravada em
+    cada chunk e usada para filtrar a busca ao modelo vigente.
+    """
+
+    provider: str
+    model_id: str
 
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
@@ -84,10 +92,12 @@ class OpenAICompatEmbedder:
     o backend local; provedores que aceitam batch continuam corretos.
     """
 
-    def __init__(self, *, base_url: str, api_key: str, model: str) -> None:
+    def __init__(self, *, base_url: str, api_key: str, model: str, provider: str = "ollama") -> None:
         self.base_url = base_url
         self.api_key = api_key or "no-key"
         self.model = model
+        self.provider = provider
+        self.model_id = model
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         from openai import AsyncOpenAI
@@ -104,14 +114,16 @@ class OpenAICompatEmbedder:
 def get_embedder(settings: Settings) -> Embedder:
     """Seleciona o embedder por configuração — troca sem alterar as chamadas.
 
-    Dev/teste usa Ollama (OpenAI-compat). Para a entrega AWS, plugar aqui um
-    embedder Gemini/Bedrock Titan mantendo o mesmo contrato ``Embedder``.
+    Dev/teste usa Ollama (OpenAI-compat) como primário. Para a entrega AWS,
+    plugar aqui um embedder Gemini/Bedrock Titan mantendo o mesmo contrato
+    ``Embedder`` (com ``provider``/``model_id``) — ao trocar o modelo, os chunks
+    do modelo antigo ficam obsoletos e devem ser re-vetorizados (``reindex_user``).
     """
     provider = settings.embedding_provider.lower()
     if provider == "ollama":
         model = settings.embedding_model or settings.ollama_model
         return OpenAICompatEmbedder(
-            base_url=settings.ollama_base_url, api_key="ollama", model=model
+            base_url=settings.ollama_base_url, api_key="ollama", model=model, provider="ollama"
         )
     # Gemini/Bedrock: implementar quando a entrega AWS estiver de pé.
     raise NotImplementedError(
@@ -153,10 +165,18 @@ async def index_document(
                 chunk_index=i,
                 text=piece,
                 embedding=vec,
+                embedding_provider=embedder.provider,
+                embedding_model=embedder.model_id,
             )
         )
     await db.commit()
-    logger.info("Indexados %d chunks do documento %s", len(pieces), document_id)
+    logger.info(
+        "Indexados %d chunks do documento %s (embedder %s:%s)",
+        len(pieces),
+        document_id,
+        embedder.provider,
+        embedder.model_id,
+    )
     return len(pieces)
 
 
@@ -171,6 +191,10 @@ async def retrieve(
 ) -> list[Chunk]:
     """Recupera os top-k chunks do usuário mais próximos da ``query`` (cosseno).
 
+    **Guard de consistência:** só compara chunks vetorizados com o **mesmo
+    modelo** do embedder atual — vetores de modelos diferentes são incomparáveis.
+    Chunks obsoletos (de outro modelo) são ignorados até serem re-vetorizados.
+
     Restringe a ``document_ids`` quando fornecido (ex.: chat sobre docs
     selecionados). Isolado por ``user_id``.
     """
@@ -178,13 +202,100 @@ async def retrieve(
         return []
     qvec = (await embedder.embed([query]))[0]
 
-    stmt = select(Chunk).where(Chunk.user_id == user_id)
+    stmt = select(Chunk).where(
+        Chunk.user_id == user_id,
+        Chunk.embedding_provider == embedder.provider,
+        Chunk.embedding_model == embedder.model_id,
+    )
     if document_ids:
         stmt = stmt.where(Chunk.document_id.in_(document_ids))
     stmt = stmt.order_by(Chunk.embedding.cosine_distance(qvec)).limit(k)
 
     rows = await db.execute(stmt)
     return list(rows.scalars().all())
+
+
+async def count_stale_chunks(db: AsyncSession, embedder: Embedder, *, user_id: str) -> int:
+    """Quantos chunks do usuário estão vetorizados com um modelo diferente do atual.
+
+    Insumo para decidir se é preciso re-vetorizar (ex.: após trocar de provedor
+    de embeddings ao subir para produção).
+    """
+    return int(
+        await db.scalar(
+            select(func.count(Chunk.id)).where(
+                Chunk.user_id == user_id,
+                (Chunk.embedding_provider != embedder.provider)
+                | (Chunk.embedding_model != embedder.model_id),
+            )
+        )
+        or 0
+    )
+
+
+async def reindex_user(
+    db: AsyncSession,
+    embedder: Embedder,
+    *,
+    user_id: str,
+    settings: Settings,
+    load_text,
+    only_stale: bool = True,
+) -> dict:
+    """Re-vetoriza os documentos do usuário com o embedder atual.
+
+    Usado ao trocar o modelo de embeddings (ex.: dev Ollama → produção
+    Gemini/Bedrock): os vetores antigos ficam num espaço incompatível e precisam
+    ser regerados a partir do **texto já extraído** (não reprocessa o PDF).
+
+    - ``load_text(document)`` → texto extraído do documento (async).
+    - ``only_stale``: pula documentos cujos chunks já estão no modelo atual.
+
+    Retorna um resumo ``{documents, reindexed, skipped, chunks}``.
+    """
+    docs = list(
+        (
+            await db.execute(
+                select(Document).where(
+                    Document.user_id == user_id,
+                    Document.extraction_status == "done",
+                    Document.extracted_key.is_not(None),
+                )
+            )
+        ).scalars()
+    )
+
+    reindexed = skipped = total_chunks = 0
+    for doc in docs:
+        if only_stale:
+            current = await db.scalar(
+                select(func.count(Chunk.id)).where(
+                    Chunk.document_id == doc.id,
+                    Chunk.embedding_provider == embedder.provider,
+                    Chunk.embedding_model == embedder.model_id,
+                )
+            )
+            if current:
+                skipped += 1
+                continue
+        text = await load_text(doc)
+        n = await index_document(
+            db,
+            embedder,
+            document_id=doc.id,
+            user_id=user_id,
+            text=text,
+            settings=settings,
+        )
+        reindexed += 1
+        total_chunks += n
+
+    return {
+        "documents": len(docs),
+        "reindexed": reindexed,
+        "skipped": skipped,
+        "chunks": total_chunks,
+    }
 
 
 async def build_rag_hits(

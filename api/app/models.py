@@ -197,4 +197,9 @@ class Chunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float]] = mapped_column(_EmbeddingType, nullable=False)
+    # Proveniência do embedding: embeddings de modelos diferentes vivem em
+    # espaços incompatíveis. Guardamos provider/modelo para (a) filtrar a busca
+    # ao modelo vigente e (b) detectar chunks obsoletos a re-vetorizar.
+    embedding_provider: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    embedding_model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

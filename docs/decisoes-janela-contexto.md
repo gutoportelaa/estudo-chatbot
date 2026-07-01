@@ -290,8 +290,17 @@ recuperação por turno em `app/llm.py`; `docker-compose.yml` usa a imagem
   (CloudWatch Logs Insights/Grafana) na fase AWS.
 - **Instrumentar o caminho ADK/Gemini** com o mesmo formato `turn_metrics`,
   usando o `usage` nativo do ADK.
-- **Embedder Gemini/Bedrock (#34):** hoje só Ollama; plugar o provedor gerenciado
-  na entrega AWS. Índice HNSW no pgvector quando o volume crescer.
+- **Embedder Gemini/Bedrock (#34):** hoje só Ollama (primário no dev); plugar o
+  provedor gerenciado na entrega AWS e rodar `POST /documents/reindex`. Índice
+  HNSW no pgvector quando fixarmos a dimensão do modelo de produção.
+
+  > **Re-vetorização (fundação implementada).** Embeddings de modelos diferentes
+  > vivem em espaços incompatíveis. Cada `Chunk` grava a proveniência
+  > (`embedding_provider`/`embedding_model`); o `retrieve` só compara chunks do
+  > **modelo vigente** (guard de consistência) e `count_stale_chunks`/
+  > `reindex_user` (endpoint `POST /documents/reindex`) re-vetorizam a partir do
+  > texto já extraído ao trocar de modelo. Validado em smoke: ao trocar o modelo,
+  > a busca ignora os chunks antigos até o reindex.
 - **#35 — busca web** (Tavily/DuckDuckGo) com citações, adotando o `ToolResult`.
 - **Débito de migrations (unificação B1):** a migration da B1 (`78f6acf9771a`)
   é WIP não-commitado em `feat/c1`, com `down_revision = c3a8e1f04b21` — o mesmo

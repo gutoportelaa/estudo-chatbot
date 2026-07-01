@@ -50,6 +50,9 @@ def test_get_embedder_ollama_returns_openai_compat():
     emb = get_embedder(_S())
     assert isinstance(emb, OpenAICompatEmbedder)
     assert emb.model == "llama3.2:3b"
+    # Proveniência: usada para gravar em cada chunk e filtrar a busca ao modelo.
+    assert emb.provider == "ollama"
+    assert emb.model_id == "llama3.2:3b"
 
 
 def test_get_embedder_unknown_provider_raises():
