@@ -68,6 +68,19 @@ class Settings(BaseSettings):
     # Abaixo de ~N chars por página no texto nativo, assume PDF escaneado → OCR.
     extraction_ocr_min_chars_per_page: int = 100
 
+    # ----- RAG: embeddings + pgvector (recuperação seletiva) — issue #34 -----
+    # Provedor de embeddings: "ollama" (dev, OpenAI-compat) | "gemini" | "bedrock".
+    embedding_provider: str = "ollama"
+    # Modelo de embeddings (vazio = usa o modelo de chat do provedor).
+    embedding_model: str = ""
+    # Chunking do texto extraído (em caracteres) e sobreposição entre chunks.
+    rag_chunk_size: int = 1000
+    rag_chunk_overlap: int = 150
+    # Quantos trechos recuperar por turno.
+    rag_top_k: int = 4
+    # Cota de tokens do bloco de RAG no contexto (subconjunto de tool budget).
+    rag_max_tokens: int = 1500
+
     # ----- Context Compaction nativo do ADK (caminho Gemini) -----
     adk_compaction_enabled: bool = False
     adk_compaction_interval: int = 4

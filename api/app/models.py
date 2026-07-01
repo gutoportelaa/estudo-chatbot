@@ -3,10 +3,16 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+
+# Coluna de embedding: ``vector`` (dimensionless) no Postgres/pgvector; cai para
+# JSON em SQLite (testes). Sem dimensão fixa para aceitar qualquer provedor de
+# embeddings (Ollama 3072, Bedrock Titan 1536, Gemini 768) — issue #34.
+_EmbeddingType = Vector().with_variant(JSON, "sqlite")
 
 
 def _now() -> datetime:
@@ -169,3 +175,26 @@ class SummaryDocument(Base):
     document_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
     )
+
+
+class Chunk(Base):
+    """Trecho (chunk) de um documento, vetorizado para recuperação (RAG, #34).
+
+    O texto extraído (#33) é dividido em chunks com overlap; cada um guarda seu
+    ``embedding`` em pgvector. A busca por similaridade recupera os top-k trechos
+    relevantes a uma pergunta, que entram no bloco de RAG do Context Assembler.
+    """
+
+    __tablename__ = "chunks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(_EmbeddingType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

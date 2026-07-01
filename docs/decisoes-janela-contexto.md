@@ -237,14 +237,68 @@ provedor — sua instrumentação é um *follow-up* separado, não estimável à
 
 ---
 
+## #34 — RAG com embeddings + pgvector (recuperação seletiva)
+
+**Onde:** `api/app/tools/rag.py` (`chunk_text`, `Embedder`/`get_embedder`,
+`index_document`, `retrieve`, `build_rag_hits`); modelo `Chunk` + extensão
+pgvector (migration `e5c3d9a2b1f7`); endpoint `POST /documents/{id}/index`;
+recuperação por turno em `app/llm.py`; `docker-compose.yml` usa a imagem
+`pgvector/pgvector:pg16`.
+
+### Decisões
+
+- **pgvector no Postgres existente**, não um serviço vetorial dedicado — sem
+  custo/infra nova (critério da issue). Imagem do banco trocada para
+  `pgvector/pgvector:pg16`; a migration roda `CREATE EXTENSION vector`.
+
+- **Coluna de embedding *dimensionless* (`vector` sem dimensão fixa).** Aceita
+  qualquer provedor sem migrar o schema: Ollama (3072) no dev, Bedrock Titan
+  (1536) ou Gemini (768) na entrega. Busca por similaridade via *seq scan* com
+  `<=>` (cosseno) — suficiente na escala do protótipo; para escalar, adicionar
+  índice HNSW com dimensão fixa. Em SQLite (testes) a coluna cai para `JSON` via
+  `with_variant`, mantendo a suíte verde sem pgvector.
+
+- **Embedder trocável por config** (`embedding_provider`), espelhando a abstração
+  de OCR da #33. Dev usa Ollama via endpoint OpenAI-compat; Gemini/Bedrock ficam
+  como plug para a entrega (levantam `NotImplementedError` até implementados).
+
+- **Chunking com overlap** (`rag_chunk_size`/`rag_chunk_overlap`), quebrando em
+  espaço para não cortar palavras — lógica pura e testada.
+
+- **Recuperação por turno, isolada por usuário, com cota própria.** O `llm.py`
+  só embeda a pergunta se o usuário tem chunks (evita custo à toa), recupera
+  top-k (`rag_top_k`) e limita os hits a `rag_max_tokens` (mantendo os mais
+  relevantes). Os hits entram no bloco de RAG do Context Assembler (#30) e
+  **nunca quebram o chat**: qualquer falha do RAG cai em "sem hits".
+
+- **Citação da fonte.** Cada hit é rotulado `[Fonte: <arquivo> · trecho N]` para
+  o modelo citar o trecho-fonte — o "conversar com o material" com procedência.
+
+### Critério de aceite
+
+- ✅ Pergunta sobre o material é respondida citando o trecho-fonte — validado em
+  smoke E2E (Ollama + pgvector): a pergunta "produção de ATP" recuperou em 1º o
+  trecho do ciclo de Krebs/mitocôndria, citando o arquivo.
+- ✅ Tokens injetados limitados por `k` (`rag_top_k`) e pela cota
+  (`rag_max_tokens`) + corte global do orçamento.
+
+---
+
 ## Pendências do épico
 
 - **Dashboard de #37:** o log estruturado já existe; falta a agregação visual
   (CloudWatch Logs Insights/Grafana) na fase AWS.
 - **Instrumentar o caminho ADK/Gemini** com o mesmo formato `turn_metrics`,
   usando o `usage` nativo do ADK.
-- **#34–#35 — ferramentas:** RAG (pgvector, consome o `extracted_key` da #33) e
-  busca web. Cada uma adota o `ToolResult` e negocia sua cota.
+- **Embedder Gemini/Bedrock (#34):** hoje só Ollama; plugar o provedor gerenciado
+  na entrega AWS. Índice HNSW no pgvector quando o volume crescer.
+- **#35 — busca web** (Tavily/DuckDuckGo) com citações, adotando o `ToolResult`.
+- **Débito de migrations (unificação B1):** a migration da B1 (`78f6acf9771a`)
+  é WIP não-commitado em `feat/c1`, com `down_revision = c3a8e1f04b21` — o mesmo
+  pai da migration `d4f2a1b7c9e3` (#33). Ao unificar a B1 em `dev` haverá dois
+  heads a partir de `c3a8`; reparentar uma das migrations (ou usar um merge de
+  alembic) na unificação. As migrations de #33/#34 já são lineares
+  (`c3a8 → d4f2 → e5c3`).
 - **Débito de migrations (unificação B1):** a migration da B1 (`78f6acf9771a`)
   é WIP não-commitado em `feat/c1`, com `down_revision = c3a8e1f04b21` — o mesmo
   pai da migration desta issue (`d4f2a1b7c9e3`). Ao unificar a B1 em `dev` haverá
