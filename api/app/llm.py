@@ -15,6 +15,7 @@ from .config import get_settings
 from .database import AsyncSessionLocal
 from .models import Message
 from .models import Session as SessionRow
+from .models import TurnMetric
 from .observability import TurnMetrics, estimate_cost, log_turn
 
 logger = logging.getLogger("thinkai.llm")
@@ -166,25 +167,25 @@ async def stream_openai_compatible(
     yield "data: [DONE]\n\n"
 
     # Observabilidade do turno (issue #37): quebra de tokens por bloco + saída,
-    # latência e custo estimado. Emitido como log estruturado (JSON).
+    # latência e custo estimado. Emitido como log estruturado (JSON) e persistido
+    # para a tela de Consumo.
     output_tokens = context.estimate_tokens(full_text)
-    log_turn(
-        TurnMetrics(
-            session_id=session_id,
-            model=model,
-            provider=provider,
-            user_id=user_id,
-            tokens_system=breakdown.system,
-            tokens_summary=breakdown.summary,
-            tokens_rag=breakdown.rag,
-            tokens_recent=breakdown.recent,
-            tokens_tool=breakdown.tool,
-            input_tokens=breakdown.total,
-            output_tokens=output_tokens,
-            latency_ms=round((time.monotonic() - started) * 1000, 1),
-            cost_usd=estimate_cost(model, breakdown.total, output_tokens),
-        )
+    metrics = TurnMetrics(
+        session_id=session_id,
+        model=model,
+        provider=provider,
+        user_id=user_id,
+        tokens_system=breakdown.system,
+        tokens_summary=breakdown.summary,
+        tokens_rag=breakdown.rag,
+        tokens_recent=breakdown.recent,
+        tokens_tool=breakdown.tool,
+        input_tokens=breakdown.total,
+        output_tokens=output_tokens,
+        latency_ms=round((time.monotonic() - started) * 1000, 1),
+        cost_usd=estimate_cost(model, breakdown.total, output_tokens),
     )
+    log_turn(metrics)
 
     async with AsyncSessionLocal() as db:
         session_row = await db.get(SessionRow, session_id)
@@ -196,6 +197,18 @@ async def stream_openai_compatible(
                 role="assistant",
                 content=full_text,
                 created_at=datetime.now(timezone.utc),
+            )
+        )
+        db.add(
+            TurnMetric(
+                user_id=user_id,
+                session_id=session_id,
+                model=metrics.model,
+                provider=metrics.provider,
+                input_tokens=metrics.input_tokens,
+                output_tokens=metrics.output_tokens,
+                latency_ms=metrics.latency_ms,
+                cost_usd=metrics.cost_usd,
             )
         )
         await db.commit()
