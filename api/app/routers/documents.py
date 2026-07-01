@@ -15,7 +15,7 @@ from ..models import Document, User
 from ..storage import build_key, get_storage
 from ..tools import fit_to_budget
 from ..tools.extraction import extract_pdf, get_ocr_engine
-from ..tools.rag import get_embedder, index_document
+from ..tools.rag import get_embedder, index_document, reindex_user
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -191,6 +191,35 @@ async def index_document_endpoint(
         settings=settings,
     )
     return {"document_id": doc.id, "chunks_indexed": n_chunks}
+
+
+@router.post("/reindex")
+async def reindex_all_endpoint(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Re-vetoriza os documentos do usuário com o embedder atual (RAG).
+
+    Necessário ao **trocar o modelo de embeddings** (ex.: dev Ollama → produção
+    Gemini/Bedrock): os vetores antigos ficam num espaço incompatível. Re-embeda
+    a partir do texto já extraído (não reprocessa o PDF). Por padrão, só os
+    documentos com chunks obsoletos (``only_stale``).
+    """
+    settings = get_settings()
+    storage = get_storage()
+
+    async def _load_text(doc: Document) -> str:
+        data = await run_in_threadpool(storage.load, doc.extracted_key)
+        return data.decode("utf-8")
+
+    summary = await reindex_user(
+        db,
+        get_embedder(settings),
+        user_id=current_user.id,
+        settings=settings,
+        load_text=_load_text,
+    )
+    return summary
 
 
 # ---------------------------------------------------------------------------
