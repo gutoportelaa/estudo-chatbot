@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -203,3 +203,27 @@ class Chunk(Base):
     embedding_provider: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     embedding_model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class TurnMetric(Base):
+    """Métrica persistida de um turno do chat — base da tela de Consumo (#37).
+
+    Espelha o ``TurnMetrics`` (observabilidade), mas gravado no banco para
+    agregação/dashboard (tokens, custo e latência por usuário/sessão ao longo do
+    tempo). O log estruturado continua sendo emitido em paralelo.
+    """
+
+    __tablename__ = "turn_metrics"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    session_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)

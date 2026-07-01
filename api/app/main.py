@@ -11,6 +11,7 @@ from .database import Base, engine
 from .observability import configure_logging
 from .routers import auth as auth_router
 from .routers import chat as chat_router
+from .routers import metrics as metrics_router
 from .routers import documents as documents_router
 
 
@@ -40,6 +41,7 @@ app.add_middleware(
 app.include_router(auth_router.router)
 app.include_router(chat_router.router)
 app.include_router(documents_router.router)
+app.include_router(metrics_router.router)
 
 
 @app.get("/health")
