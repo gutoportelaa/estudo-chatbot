@@ -67,6 +67,19 @@ class Settings(BaseSettings):
     adk_compaction_token_threshold: int = 4000
     adk_compaction_retention: int = 6
 
+    # ----- Armazenamento de documentos (PDFs) -----
+    # Backend: "local" (filesystem, ideal p/ dev) | "s3" (produção)
+    storage_backend: str = "local"
+    # Diretório-raiz quando storage_backend = "local".
+    storage_dir: str = "./data/documents"
+    # Tamanho máximo de upload, em MB (RF-002).
+    max_upload_mb: int = 50
+    # S3 (storage_backend = "s3")
+    s3_bucket: str = ""
+    s3_region: str = "us-east-1"
+    # Validade das presigned URLs, em segundos.
+    presign_expire_seconds: int = 900
+
     @property
     def cors_origins_list(self) -> list[str]:
         if self.cors_origins.strip() == "*":
