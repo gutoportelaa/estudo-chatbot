@@ -203,6 +203,19 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await req<void>(`/sessions/${sessionId}`, { method: "DELETE" });
 }
 
+export async function getSessionDocuments(sessionId: string): Promise<string[]> {
+  const data = await req<{ document_ids: string[] }>(`/sessions/${sessionId}/documents`);
+  return data.document_ids ?? [];
+}
+
+export async function attachDocuments(sessionId: string, documentIds: string[]): Promise<string[]> {
+  const data = await req<{ document_ids: string[] }>(`/sessions/${sessionId}/documents`, {
+    method: "POST",
+    body: JSON.stringify({ document_ids: documentIds }),
+  });
+  return data.document_ids ?? [];
+}
+
 export async function renameSession(sessionId: string, title: string): Promise<SessionSummary> {
   return req<SessionSummary>(`/sessions/${sessionId}`, {
     method: "PATCH",
