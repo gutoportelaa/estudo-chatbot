@@ -1,6 +1,5 @@
 import { useRef } from "react";
-// import { ImageIcon, PaperclipIcon, SendIcon } from "./icons";
-import { SendIcon } from "./icons";
+import { PaperclipIcon, SendIcon } from "./icons";
 
 interface Props {
   onSend: (text: string) => void;
@@ -8,10 +7,23 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   modelName?: string;
+  onAttach?: (file: File) => void | Promise<void>;
+  attaching?: boolean;
+  attachedCount?: number;
 }
 
-export function ChatInput({ onSend, disabled, value, onChange, modelName }: Props) {
+export function ChatInput({
+  onSend,
+  disabled,
+  value,
+  onChange,
+  modelName,
+  onAttach,
+  attaching,
+  attachedCount = 0,
+}: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const submit = () => {
     if (!value.trim() || disabled) return;
@@ -47,15 +59,37 @@ export function ChatInput({ onSend, disabled, value, onChange, modelName }: Prop
       <div className="chat-input-footer">
         <div className="chat-input-left">
           <span className="model-label">{modelName || "—"}</span>
+          {attachedCount > 0 ? (
+            <span className="attach-chip" title="Documentos nesta conversa">
+              <PaperclipIcon /> {attachedCount}
+            </span>
+          ) : null}
         </div>
         <div className="chat-input-right">
-          {/* Botões de mídia desativados até suporte multimodal ser implementado */}
-          {/* <button className="icon-btn ghost" aria-label="Anexar imagem">
-            <ImageIcon />
-          </button>
-          <button className="icon-btn ghost" aria-label="Anexar arquivo">
-            <PaperclipIcon />
-          </button> */}
+          {onAttach ? (
+            <>
+              <button
+                className="icon-btn ghost"
+                onClick={() => fileRef.current?.click()}
+                disabled={disabled || attaching}
+                aria-label="Anexar PDF à conversa"
+                title={attaching ? "Anexando…" : "Anexar PDF à conversa"}
+              >
+                <PaperclipIcon />
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="application/pdf"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void onAttach(file);
+                  e.target.value = "";
+                }}
+              />
+            </>
+          ) : null}
           <button
             className="send-btn"
             onClick={submit}

@@ -106,3 +106,32 @@ def test_create_session_without_documents_still_works(client, storage_tmp):
     r = client.post("/sessions", headers=headers)
     assert r.status_code == 201
     assert r.json()["document_ids"] == []
+
+
+def test_attach_documents_to_existing_session(client, storage_tmp):
+    headers = _auth(client)
+    sid = client.post("/sessions", headers=headers).json()["id"]
+    d1 = _upload(client, headers, name="d1.pdf").json()["id"]
+    d2 = _upload(client, headers, name="d2.pdf").json()["id"]
+
+    # anexa d1 (clipe do chat)
+    r = client.post(f"/sessions/{sid}/documents", headers=headers, json={"document_ids": [d1]})
+    assert r.status_code == 200
+    assert r.json()["document_ids"] == [d1]
+
+    # anexa d2 + d1 de novo → sem duplicar
+    r = client.post(f"/sessions/{sid}/documents", headers=headers, json={"document_ids": [d2, d1]})
+    assert set(r.json()["document_ids"]) == {d1, d2}
+
+    # GET reflete o escopo
+    got = client.get(f"/sessions/{sid}/documents", headers=headers).json()
+    assert set(got["document_ids"]) == {d1, d2}
+
+
+def test_attach_rejects_foreign_document(client, storage_tmp):
+    a = _auth(client, username="alice_at")
+    foreign = _upload(client, a, name="x.pdf").json()["id"]
+    b = _auth(client, username="bob_at")
+    sid = client.post("/sessions", headers=b).json()["id"]
+    r = client.post(f"/sessions/{sid}/documents", headers=b, json={"document_ids": [foreign]})
+    assert r.status_code == 404

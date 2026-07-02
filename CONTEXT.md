@@ -121,7 +121,27 @@ resumo dentro da cota (contrato #32).
 `app/tools/rag.py`: o texto extraído é dividido em chunks, vetorizado por
 **embeddings** e guardado em **pgvector**. A cada turno, os top-k trechos
 relevantes entram no bloco de RAG do Context Assembler, citando a fonte. Imagem
-do banco: `pgvector/pgvector:pg16`.
+do banco: `pgvector/pgvector:pg16`. Embedders trocáveis por config: **Ollama**
+(dev) e **Gemini** `gemini-embedding-001` (produção). Como embeddings de modelos
+diferentes são incompatíveis, cada chunk grava a **proveniência**
+(`embedding_provider`/`model`); a busca só compara o modelo vigente e
+`POST /documents/reindex` re-vetoriza ao trocar de modelo.
+
+### Etapa 13 — Observabilidade + tela de Consumo (#37)
+
+`app/observability.py`: cada turno emite um log estruturado (`turn_metrics`) e é
+persistido em `turn_metrics` (tokens por bloco, entrada/saída, latência, custo
+estimado por modelo). `GET /metrics/usage` agrega por dia/modelo; o frontend tem
+uma tela de **Consumo** (estilo Google AI Studio) e um **badge de compactação**
+que mostra a timeline de sumarização do histórico.
+
+### Etapa 14 — Biblioteca de documentos (C2)
+
+Seção **Biblioteca** (grade de capas): a **capa** é o thumbnail da 1ª página
+(PyMuPDF), gerado no upload/extract e servido por `GET /documents/{id}/thumbnail`.
+Operações: adicionar (dropzone ou clipe do chat), ordenar, excluir e **selecionar
+documentos para uma conversa** — o RAG fica restrito a eles (`SessionDocument`).
+O clipe (📎) do chat anexa um PDF à conversa atual em andamento.
 
 ---
 
@@ -143,7 +163,8 @@ do banco: `pgvector/pgvector:pg16`.
 | Banco de dados | PostgreSQL 16 + **pgvector** | Relacional + busca vetorial (RAG) no mesmo banco |
 | ORM | SQLAlchemy async + Alembic | Migrations versionadas, queries tipadas |
 | Extração de PDF | **PyMuPDF** (nativo) + OCR | Tesseract (local) / AWS Textract (prod) |
-| Embeddings | Ollama (dev) → Gemini/Bedrock (prod) | Trocável por config; vetores em pgvector |
+| Embeddings | **Ollama** (dev) / **Gemini** (prod) | Trocável por config; proveniência por chunk + reindex |
+| Observabilidade | Log `turn_metrics` + tabela + tela Consumo | Tokens/custo/latência por turno; CloudWatch na AWS |
 | Armazenamento de arquivos | **S3** (prod) / filesystem (dev) | Abstração `StorageBackend`; IAM Role no S3 |
 | Autenticação | JWT (python-jose + bcrypt) | Stateless, sem dependência de sessão no servidor |
 | Containerização | Docker + Docker Compose | Ambiente idêntico local e produção |
@@ -158,8 +179,10 @@ do banco: `pgvector/pgvector:pg16`.
 | `User` | Usuário (username, hash bcrypt; campos de perfil da B1 em WIP) |
 | `Session` / `Message` | Sessão de chat e mensagens (role user/assistant) |
 | `ConversationSummary` | Resumo do histórico compactado (auditoria da #31) |
-| `Document` | PDF enviado: referência ao storage + `extraction_status`/`extracted_key` |
-| `Chunk` | Trecho vetorizado do documento (`embedding` em pgvector) — RAG |
+| `Document` | PDF enviado: storage + `extraction_status`/`extracted_key`/`thumbnail_key` |
+| `Chunk` | Trecho vetorizado (`embedding` em pgvector) + proveniência do modelo — RAG |
+| `SessionDocument` | Documentos escopados a uma conversa (Biblioteca / clipe) |
+| `TurnMetric` | Métrica persistida por turno (tokens/custo/latência) — tela de Consumo |
 | `Summary` / `SummaryDocument` | Resumo (single/consolidado) e associação N:N com documentos |
 
 ### Estrutura de diretórios
@@ -183,7 +206,7 @@ estudo-chatbot/
 │   │   ├── llm.py          # Chat OpenAI-compat (Groq/OpenRouter/Ollama) + RAG por turno
 │   │   ├── runner.py       # Caminho ADK/Gemini (+ compaction nativa)
 │   │   ├── adk_runtime.py  # Integração Google ADK
-│   │   ├── routers/        # auth.py, chat.py, documents.py
+│   │   ├── routers/        # auth.py, chat.py, documents.py, metrics.py
 │   │   └── tools/          # contract.py (#32), extraction.py (#33), rag.py (#34)
 │   ├── alembic/            # Migrations do banco de dados
 │   ├── tests/              # pytest (contexto, tools, extração, RAG, documents, auth...)
@@ -191,10 +214,11 @@ estudo-chatbot/
 │   └── Dockerfile          # tesseract-ocr + alembic upgrade no start
 ├── web/                    # Frontend React (bun)
 │   ├── src/
-│   │   ├── App.tsx
-│   │   ├── api/client.ts   # createSession / streamChat / fetchHistory
-│   │   ├── hooks/          # useSession, useChat, useTheme
-│   │   ├── components/     # Header, Greeting, PromptCards, ChatInput, MessageList
+│   │   ├── App.tsx         # view chat | biblioteca; modais de Consumo/Preferências
+│   │   ├── api/client.ts   # chat, sessões, documentos, /metrics/usage, thumbnails
+│   │   ├── hooks/          # useSessions, useChat, useAuth, useTheme
+│   │   ├── components/     # Header, Sidebar, ChatInput, MessageList, BibliotecaView,
+│   │   │                   #   DocumentCard, ConsumptionModal, MemoryBadge, ...
 │   │   └── styles/         # theme.css (claro/nocturne) + app.css
 │   ├── package.json
 │   └── Dockerfile
@@ -243,8 +267,8 @@ Para o RAG (#34), reusar o Postgres existente com a extensão **pgvector** evita
 
 - Refresh tokens e logout com invalidação
 - Rate limiting na API (ex.: `slowapi`) — o custo por turno (#37) já é o insumo
-- Embedder gerenciado (Gemini/Bedrock) e índice HNSW no pgvector para escalar o RAG
-- Instrumentar o caminho ADK/Gemini com o mesmo `turn_metrics` e montar o dashboard (CloudWatch)
-- Frontend das features: dashboard (#46), listagem/seleção de arquivos (#42), resumos (#44/#45)
+- Embedder **Bedrock Titan** (Gemini já implementado) e índice HNSW no pgvector para escalar o RAG
+- Instrumentar o caminho ADK/Gemini com o mesmo `turn_metrics` e dashboard (CloudWatch/Grafana)
+- Frontend: dashboard do usuário (#46), resumos individual/consolidado (#44/#45), painel lateral de visualização do documento
 - Elastic IP fixo na EC2 para não perder o endereço ao reiniciar
 - Unificação das branches divergentes (B1 de perfil) e do débito de migrations

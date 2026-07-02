@@ -139,6 +139,68 @@ async def get_summaries(
     ]
 
 
+class AttachDocumentsBody(BaseModel):
+    document_ids: list[str]
+
+
+async def _session_document_ids(db: AsyncSession, session_id: str) -> list[str]:
+    return list(
+        (
+            await db.execute(
+                select(SessionDocument.document_id).where(SessionDocument.session_id == session_id)
+            )
+        ).scalars()
+    )
+
+
+@router.get("/{session_id}/documents")
+async def get_session_documents(
+    session_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Documentos escopados à conversa (Biblioteca / clipe do chat)."""
+    session = await db.get(Session, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sessão não encontrada")
+    return {"document_ids": await _session_document_ids(db, session_id)}
+
+
+@router.post("/{session_id}/documents")
+async def attach_session_documents(
+    session_id: str,
+    body: AttachDocumentsBody,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Anexa documentos a uma conversa existente (clipe do chat) — RAG passa a
+    considerá-los. Valida posse e ignora os já anexados."""
+    session = await db.get(Session, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sessão não encontrada")
+
+    doc_ids = list(dict.fromkeys(body.document_ids))
+    owned = set(
+        (
+            await db.execute(
+                select(Document.id).where(
+                    Document.id.in_(doc_ids), Document.user_id == current_user.id
+                )
+            )
+        ).scalars()
+    )
+    missing = [d for d in doc_ids if d not in owned]
+    if missing:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Documentos não encontrados: {missing}")
+
+    existing = set(await _session_document_ids(db, session_id))
+    for d in doc_ids:
+        if d not in existing:
+            db.add(SessionDocument(session_id=session_id, document_id=d))
+    await db.commit()
+    return {"document_ids": await _session_document_ids(db, session_id)}
+
+
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(
     session_id: str,

@@ -1,5 +1,12 @@
-import { type FormEvent, useEffect, useState } from "react";
-import { fetchModelName } from "./api/client";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  attachDocuments,
+  extractDocument,
+  fetchModelName,
+  getSessionDocuments,
+  indexDocument,
+  uploadDocument,
+} from "./api/client";
 import { ChatInput } from "./components/ChatInput";
 import { Greeting } from "./components/Greeting";
 import { Header } from "./components/Header";
@@ -34,6 +41,43 @@ export default function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+
+  // Documentos escopados à conversa atual (Biblioteca / clipe do chat).
+  const [attachedCount, setAttachedCount] = useState(0);
+  const [attaching, setAttaching] = useState(false);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setAttachedCount(0);
+      return;
+    }
+    let active = true;
+    getSessionDocuments(sessionId)
+      .then((ids) => active && setAttachedCount(ids.length))
+      .catch(() => active && setAttachedCount(0));
+    return () => {
+      active = false;
+    };
+  }, [sessionId]);
+
+  const handleAttach = useCallback(
+    async (file: File) => {
+      if (!sessionId) return;
+      setAttaching(true);
+      try {
+        const doc = await uploadDocument(file);
+        await extractDocument(doc.id).catch(() => null);
+        await indexDocument(doc.id).catch(() => null);
+        const ids = await attachDocuments(sessionId, [doc.id]);
+        setAttachedCount(ids.length);
+      } catch {
+        // silencioso: o chat continua funcionando mesmo se o anexo falhar
+      } finally {
+        setAttaching(false);
+      }
+    },
+    [sessionId],
+  );
 
   const hasConversation = messages.length > 0;
 
@@ -223,6 +267,9 @@ export default function App() {
               }}
               disabled={isStreaming || !sessionId}
               modelName={modelName}
+              onAttach={handleAttach}
+              attaching={attaching}
+              attachedCount={attachedCount}
             />
             <div className="composer-footer">
               <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>
