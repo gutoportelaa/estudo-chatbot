@@ -129,6 +129,12 @@ def test_send_message_retorna_stream_com_resposta_mockada(client, monkeypatch):
         "app.routers.chat._stream_adk",
         fake_stream_adk,
     )
+    # Força o caminho ADK independentemente do provedor no .env (senão o roteador
+    # escolhe o caminho OpenAI-compat e o mock de _stream_adk é ignorado).
+    class _Settings:
+        llm_provider = "gemini"
+
+    monkeypatch.setattr("app.config.get_settings", lambda: _Settings())
 
     headers = _auth_headers(client, username="user_chat")
     session = client.post("/sessions", headers=headers).json()

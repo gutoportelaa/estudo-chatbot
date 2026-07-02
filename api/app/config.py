@@ -71,8 +71,10 @@ class Settings(BaseSettings):
     # ----- RAG: embeddings + pgvector (recuperação seletiva) — issue #34 -----
     # Provedor de embeddings: "ollama" (dev, OpenAI-compat) | "gemini" | "bedrock".
     embedding_provider: str = "ollama"
-    # Modelo de embeddings (vazio = usa o modelo de chat do provedor).
+    # Modelo de embeddings (vazio = padrão do provedor: ollama→chat, gemini→gemini-embedding-001).
     embedding_model: str = ""
+    # Endpoint OpenAI-compatível do Gemini (embeddings de produção).
+    gemini_openai_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     # Chunking do texto extraído (em caracteres) e sobreposição entre chunks.
     rag_chunk_size: int = 1000
     rag_chunk_overlap: int = 150

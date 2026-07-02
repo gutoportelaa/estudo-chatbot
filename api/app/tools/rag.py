@@ -125,9 +125,19 @@ def get_embedder(settings: Settings) -> Embedder:
         return OpenAICompatEmbedder(
             base_url=settings.ollama_base_url, api_key="ollama", model=model, provider="ollama"
         )
-    # Gemini/Bedrock: implementar quando a entrega AWS estiver de pé.
+    if provider == "gemini":
+        # Gemini expõe embeddings via endpoint OpenAI-compatível — reusa a mesma
+        # classe. Modelo estável: gemini-embedding-001.
+        model = settings.embedding_model or "gemini-embedding-001"
+        return OpenAICompatEmbedder(
+            base_url=settings.gemini_openai_base_url,
+            api_key=settings.gemini_api_key,
+            model=model,
+            provider="gemini",
+        )
+    # Bedrock Titan: implementar quando a entrega usar AWS Bedrock.
     raise NotImplementedError(
-        f"Embedder para provider '{provider}' ainda não implementado; use 'ollama' no dev"
+        f"Embedder para provider '{provider}' ainda não implementado (use 'ollama' ou 'gemini')"
     )
 
 

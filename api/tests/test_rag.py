@@ -55,6 +55,20 @@ def test_get_embedder_ollama_returns_openai_compat():
     assert emb.model_id == "llama3.2:3b"
 
 
+def test_get_embedder_gemini_uses_openai_compat_endpoint():
+    class _S:
+        embedding_provider = "gemini"
+        embedding_model = ""
+        gemini_api_key = "k"
+        gemini_openai_base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+    emb = get_embedder(_S())
+    assert isinstance(emb, OpenAICompatEmbedder)
+    assert emb.provider == "gemini"
+    assert emb.model_id == "gemini-embedding-001"  # default estável
+    assert emb.base_url.endswith("/openai/")
+
+
 def test_get_embedder_unknown_provider_raises():
     class _S:
         embedding_provider = "bedrock"
