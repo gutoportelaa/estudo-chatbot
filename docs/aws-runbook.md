@@ -98,13 +98,14 @@ Alternativa sem domínio: HTTP na 80 para a demo (a banca aceita, mas 443 pontua
   Em produção pode-se preferir **AWS Textract** (`OCR_ENGINE=textract`) — mais
   acurácia e imagem menor. Requer permissão IAM `textract:DetectDocumentText`
   (adicionar à policy da EC2 se usar Textract).
-- **Embeddings do RAG (#34) — atenção.** Hoje só o embedder **Ollama** está
-  implementado; `EMBEDDING_PROVIDER=gemini|bedrock` ainda levanta
-  `NotImplementedError`. Para RAG em produção: (a) implementar o embedder
-  gerenciado (Bedrock Titan → permissão `bedrock:InvokeModel`; ou Gemini
-  embeddings), **ou** (b) rodar um Ollama acessível. Sem isso, o chat funciona
-  normalmente, apenas **sem** recuperação de material (o RAG falha em silêncio,
-  por design — nunca quebra o chat).
+- **Embeddings do RAG (#34).** Embedders implementados: **Ollama** (dev) e
+  **Gemini** (`EMBEDDING_PROVIDER=gemini`, modelo `gemini-embedding-001` via
+  endpoint OpenAI-compat, usa `GEMINI_API_KEY`). Em produção, use
+  `EMBEDDING_PROVIDER=gemini` e rode `POST /documents/reindex` **uma vez** para
+  re-vetorizar documentos existentes (vetores de outro modelo são ignorados pelo
+  guard de consistência). `EMBEDDING_PROVIDER=bedrock` ainda não implementado. Se
+  o embedder falhar, o chat segue normal, apenas **sem** RAG (falha em silêncio,
+  por design).
 - **Config nova em produção** (via SSM/`.env`): `OCR_ENGINE`, `OCR_LANGUAGE`,
   `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `RAG_TOP_K`, `RAG_MAX_TOKENS`,
   `TOOL_OUTPUT_MAX_TOKENS`, além de `STORAGE_BACKEND=s3` + `S3_BUCKET`. Ver

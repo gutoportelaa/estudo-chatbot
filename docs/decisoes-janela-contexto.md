@@ -290,9 +290,11 @@ recuperação por turno em `app/llm.py`; `docker-compose.yml` usa a imagem
   (CloudWatch Logs Insights/Grafana) na fase AWS.
 - **Instrumentar o caminho ADK/Gemini** com o mesmo formato `turn_metrics`,
   usando o `usage` nativo do ADK.
-- **Embedder Gemini/Bedrock (#34):** hoje só Ollama (primário no dev); plugar o
-  provedor gerenciado na entrega AWS e rodar `POST /documents/reindex`. Índice
-  HNSW no pgvector quando fixarmos a dimensão do modelo de produção.
+- **Embedder (#34):** **Ollama** (primário no dev) e **Gemini**
+  (`gemini-embedding-001`, via endpoint OpenAI-compat) implementados e validados;
+  **Bedrock Titan** ainda pendente. Ao subir para produção com Gemini, rodar
+  `POST /documents/reindex` para re-vetorizar. Índice HNSW no pgvector quando
+  fixarmos a dimensão do modelo de produção.
 
   > **Re-vetorização (fundação implementada).** Embeddings de modelos diferentes
   > vivem em espaços incompatíveis. Cada `Chunk` grava a proveniência
