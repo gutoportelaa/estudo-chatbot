@@ -51,6 +51,21 @@ class Session(Base):
     messages: Mapped[list["Message"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", order_by="Message.created_at"
     )
+    # Documentos selecionados para esta conversa (RAG restrito a eles) — Biblioteca.
+    documents: Mapped[list["Document"]] = relationship(secondary="session_documents")
+
+
+class SessionDocument(Base):
+    """Documentos escopados a uma sessão de chat (seleção 'nova conversa com N docs')."""
+
+    __tablename__ = "session_documents"
+
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
 
 
 class Message(Base):
@@ -130,6 +145,8 @@ class Document(Base):
     extraction_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     # Chave do artefato de texto extraído (storage); nulo até extrair.
     extracted_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Chave da capa (thumbnail da 1ª página, PNG no storage); nulo até gerar.
+    thumbnail_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     user: Mapped["User"] = relationship(back_populates="documents")
