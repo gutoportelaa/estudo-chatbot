@@ -100,8 +100,8 @@ export function useSessions(userId: string | null, enabled: boolean) {
     [key],
   );
 
-  const createNewSession = useCallback(async () => {
-    const sessionId = await createSession();
+  const createNewSession = useCallback(async (documentIds: string[] = []) => {
+    const sessionId = await createSession(documentIds);
     setSessions((current) => [{ id: sessionId }, ...current]);
     setActiveSessionId(sessionId);
     localStorage.setItem(key, sessionId);

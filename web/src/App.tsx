@@ -13,12 +13,14 @@ import { useTheme } from "./hooks/useTheme";
 import { PreferencesModal } from "./components/PreferencesModal";
 import { ConsumptionModal } from "./components/ConsumptionModal";
 import { MemoryBadge } from "./components/MemoryBadge";
+import { BibliotecaView } from "./components/BibliotecaView";
 
 export default function App() {
   const { theme, toggleTheme, colorStart, colorEnd, setColorStart, setColorEnd } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [view, setView] = useState<"chat" | "biblioteca">("chat");
   const [modelName, setModelName] = useState("");
 
   useEffect(() => {
@@ -137,8 +139,14 @@ export default function App() {
         sessions={sessions.sessions}
         activeSessionId={sessionId}
         isOpen={sidebarOpen}
-        onSelect={sessions.setActiveSessionId}
-        onNew={() => void sessions.createNewSession()}
+        onSelect={(id) => {
+          setView("chat");
+          sessions.setActiveSessionId(id);
+        }}
+        onNew={() => {
+          setView("chat");
+          void sessions.createNewSession();
+        }}
         onRename={async (id, currentTitle) => {
           const currentLabel = currentTitle?.trim() || "Conversa sem título";
           const nextTitle = window.prompt("Novo nome da conversa", currentLabel);
@@ -155,6 +163,8 @@ export default function App() {
         }}
         onOpenPreferences={() => setPrefsOpen(true)}
         onOpenUsage={() => setUsageOpen(true)}
+        onOpenBiblioteca={() => setView("biblioteca")}
+        bibliotecaActive={view === "biblioteca"}
       />
 
       <PreferencesModal
@@ -177,38 +187,51 @@ export default function App() {
           onLogout={auth.logout}
         />
 
-        <main className={`content ${hasConversation ? "is-chat" : "is-empty"}`}>
-          {hasConversation ? (
-            <>
-              <MemoryBadge sessionId={sessionId} refreshKey={messages.length} />
-              <MessageList messages={messages} />
-            </>
-          ) : (
-            <div className="welcome">
-              <Greeting username={auth.user.username} />
-              <PromptCards onPick={(p) => setDraft(p)} />
-            </div>
-          )}
-        </main>
+        {view === "biblioteca" ? (
+          <main className="content is-biblioteca">
+            <BibliotecaView
+              onStartConversation={async (documentIds) => {
+                await sessions.createNewSession(documentIds);
+                setView("chat");
+              }}
+            />
+          </main>
+        ) : (
+          <main className={`content ${hasConversation ? "is-chat" : "is-empty"}`}>
+            {hasConversation ? (
+              <>
+                <MemoryBadge sessionId={sessionId} refreshKey={messages.length} />
+                <MessageList messages={messages} />
+              </>
+            ) : (
+              <div className="welcome">
+                <Greeting username={auth.user.username} />
+                <PromptCards onPick={(p) => setDraft(p)} />
+              </div>
+            )}
+          </main>
+        )}
 
-        <footer className="composer">
-          <ChatInput
-            value={draft}
-            onChange={setDraft}
-            onSend={(text) => {
-              setDraft("");
-              send(text);
-            }}
-            disabled={isStreaming || !sessionId}
-            modelName={modelName}
-          />
-          <div className="composer-footer">
-            <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>
-            <span className="hint">
-              Use <kbd>shift + return</kbd> para nova linha
-            </span>
-          </div>
-        </footer>
+        {view === "chat" ? (
+          <footer className="composer">
+            <ChatInput
+              value={draft}
+              onChange={setDraft}
+              onSend={(text) => {
+                setDraft("");
+                send(text);
+              }}
+              disabled={isStreaming || !sessionId}
+              modelName={modelName}
+            />
+            <div className="composer-footer">
+              <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>
+              <span className="hint">
+                Use <kbd>shift + return</kbd> para nova linha
+              </span>
+            </div>
+          </footer>
+        ) : null}
       </div>
     </div>
   );

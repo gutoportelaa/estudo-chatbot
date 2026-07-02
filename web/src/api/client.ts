@@ -68,7 +68,11 @@ async function req<T>(path: string, init: RequestInit = {}, auth = true): Promis
   const headers = new Headers(init.headers);
   const token = auth ? readToken() : null;
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  // FormData (upload) precisa que o browser defina o boundary — só forçamos
+  // JSON para corpos string.
+  if (typeof init.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   const res = await fetch(`${API_URL}${path}`, { ...init, headers });
 
@@ -187,8 +191,11 @@ export async function listSessions(): Promise<SessionSummary[]> {
   return [];
 }
 
-export async function createSession(): Promise<string> {
-  const data = await req<{ id: string }>("/sessions", { method: "POST" });
+export async function createSession(documentIds: string[] = []): Promise<string> {
+  const data = await req<{ id: string }>("/sessions", {
+    method: "POST",
+    body: JSON.stringify({ document_ids: documentIds }),
+  });
   return data.id;
 }
 
@@ -201,6 +208,53 @@ export async function renameSession(sessionId: string, title: string): Promise<S
     method: "PATCH",
     body: JSON.stringify({ title }),
   });
+}
+
+// ---------- Biblioteca (documentos) ----------
+
+export interface DocumentItem {
+  id: string;
+  filename: string;
+  size_bytes: number;
+  page_count: number | null;
+  extraction_status: "pending" | "done" | "failed";
+  has_thumbnail: boolean;
+  created_at: string;
+}
+
+export type DocumentSort = "recent" | "oldest" | "name" | "size";
+
+export async function listDocuments(sort: DocumentSort = "recent"): Promise<DocumentItem[]> {
+  const data = await req<unknown>(`/documents?sort=${sort}`);
+  return Array.isArray(data) ? (data as DocumentItem[]) : [];
+}
+
+export async function uploadDocument(file: File): Promise<DocumentItem> {
+  const form = new FormData();
+  form.append("file", file);
+  return req<DocumentItem>("/documents", { method: "POST", body: form });
+}
+
+export async function extractDocument(id: string): Promise<unknown> {
+  return req<unknown>(`/documents/${id}/extract`, { method: "POST" });
+}
+
+export async function indexDocument(id: string): Promise<{ chunks_indexed: number }> {
+  return req<{ chunks_indexed: number }>(`/documents/${id}/index`, { method: "POST" });
+}
+
+export async function deleteDocument(id: string): Promise<void> {
+  await req<void>(`/documents/${id}`, { method: "DELETE" });
+}
+
+/** Baixa a capa autenticada e devolve um object URL (o <img> não envia header). */
+export async function fetchThumbnail(id: string): Promise<string> {
+  const token = readToken();
+  const res = await fetch(`${API_URL}/documents/${id}/thumbnail`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new ApiError(res.status, `Erro ${res.status}`);
+  return URL.createObjectURL(await res.blob());
 }
 
 // ---------- Messages ----------

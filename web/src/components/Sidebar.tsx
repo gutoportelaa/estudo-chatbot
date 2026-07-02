@@ -1,5 +1,5 @@
 import type { SessionSummary } from "../api/client";
-import { ChartIcon, ChatIcon, EllipsisIcon, PlusIcon, TrashIcon, SettingsIcon } from "./icons";
+import { BookIcon, ChartIcon, ChatIcon, EllipsisIcon, PlusIcon, TrashIcon, SettingsIcon } from "./icons";
 import { useState } from "react";
 
 interface Props {
@@ -12,6 +12,8 @@ interface Props {
   onDelete: (id: string) => void;
   onOpenPreferences: () => void;
   onOpenUsage: () => void;
+  onOpenBiblioteca: () => void;
+  bibliotecaActive: boolean;
 }
 
 export function Sidebar({
@@ -24,6 +26,8 @@ export function Sidebar({
   onDelete,
   onOpenPreferences,
   onOpenUsage,
+  onOpenBiblioteca,
+  bibliotecaActive,
 }: Props) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
@@ -33,6 +37,15 @@ export function Sidebar({
         <button className="sidebar-new-btn" onClick={onNew} title="Nova conversa">
           <PlusIcon />
           <span>Nova conversa</span>
+        </button>
+
+        <button
+          className={`sidebar-nav-btn${bibliotecaActive ? " is-active" : ""}`}
+          onClick={onOpenBiblioteca}
+          title="Biblioteca de documentos"
+        >
+          <BookIcon />
+          <span>Biblioteca</span>
         </button>
 
         <nav className="sidebar-sessions">
