@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import get_current_user
 from ..context import list_summaries
 from ..database import get_db
-from ..models import Message, Session, User
+from ..models import Document, Message, Session, SessionDocument, User
 from ..runner import APP_NAME, get_runner
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -26,13 +26,39 @@ class RenameSessionBody(BaseModel):
     title: str
 
 
+class CreateSessionBody(BaseModel):
+    # Documentos selecionados na Biblioteca para escopar o RAG desta conversa.
+    document_ids: list[str] = []
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_session(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    body: CreateSessionBody | None = None,
 ) -> dict:
     session = Session(user_id=current_user.id)
     db.add(session)
+    await db.flush()
+
+    # Escopo de documentos (Biblioteca): valida posse e associa à sessão.
+    doc_ids = list(dict.fromkeys(body.document_ids)) if body else []
+    if doc_ids:
+        owned = set(
+            (
+                await db.execute(
+                    select(Document.id).where(
+                        Document.id.in_(doc_ids), Document.user_id == current_user.id
+                    )
+                )
+            ).scalars()
+        )
+        missing = [d for d in doc_ids if d not in owned]
+        if missing:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Documentos não encontrados: {missing}")
+        for d in doc_ids:
+            db.add(SessionDocument(session_id=session.id, document_id=d))
+
     await db.commit()
     await db.refresh(session)
 
@@ -46,7 +72,12 @@ async def create_session(
     except AlreadyExistsError:
         pass
 
-    return {"id": session.id, "title": session.title, "created_at": session.created_at.isoformat()}
+    return {
+        "id": session.id,
+        "title": session.title,
+        "created_at": session.created_at.isoformat(),
+        "document_ids": doc_ids,
+    }
 
 
 @router.get("")

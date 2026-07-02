@@ -1,8 +1,9 @@
 """Rotas de documentos PDF — upload, listagem e fluxo presigned (RF-002/RF-003)."""
 
-from typing import Annotated
+import logging
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +15,10 @@ from ..database import get_db
 from ..models import Document, User
 from ..storage import build_key, get_storage
 from ..tools import fit_to_budget
-from ..tools.extraction import extract_pdf, get_ocr_engine
+from ..tools.extraction import extract_pdf, get_ocr_engine, render_first_page_png
 from ..tools.rag import get_embedder, index_document, reindex_user
+
+logger = logging.getLogger("thinkai.documents")
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -47,8 +50,20 @@ def _to_dict(doc: Document) -> dict:
         "content_type": doc.content_type,
         "page_count": doc.page_count,
         "extraction_status": doc.extraction_status,
+        "has_thumbnail": doc.thumbnail_key is not None,
         "created_at": doc.created_at.isoformat(),
     }
+
+
+async def _make_thumbnail(doc: Document, data: bytes, storage) -> None:
+    """Gera e persiste a capa (1ª página) do documento; falha silenciosa."""
+    try:
+        png = await run_in_threadpool(render_first_page_png, data)
+        thumb_key = doc.storage_key.rsplit(".", 1)[0] + ".thumb.png"
+        await run_in_threadpool(storage.save, thumb_key, png)
+        doc.thumbnail_key = thumb_key
+    except Exception:  # pragma: no cover - capa é acessório, não quebra o upload
+        logger.exception("Falha ao gerar a capa do documento %s", doc.id)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -77,24 +92,73 @@ async def upload_document(
         storage_backend=storage.name,
         storage_key=key,
     )
+    await _make_thumbnail(doc, data, storage)  # capa para a Biblioteca
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
     return _to_dict(doc)
 
 
+_SORTS = {
+    "recent": Document.created_at.desc(),
+    "oldest": Document.created_at.asc(),
+    "name": Document.filename.asc(),
+    "size": Document.size_bytes.desc(),
+}
+
+
 @router.get("")
 async def list_documents(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    sort: Literal["recent", "oldest", "name", "size"] = "recent",
 ) -> list[dict]:
-    """Lista os documentos do usuário autenticado (base para RF-003/C2)."""
+    """Lista os documentos do usuário (Biblioteca), com ordenação (RF-003/C2)."""
     result = await db.execute(
         select(Document)
         .where(Document.user_id == current_user.id)
-        .order_by(Document.created_at.desc())
+        .order_by(_SORTS.get(sort, _SORTS["recent"]))
     )
     return [_to_dict(d) for d in result.scalars().all()]
+
+
+@router.get("/{document_id}/thumbnail")
+async def get_thumbnail(
+    document_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Devolve a capa (PNG) do documento; 404 se ainda não houver."""
+    doc = await db.get(Document, document_id)
+    if not doc or doc.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
+    if not doc.thumbnail_key:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capa ainda não gerada")
+    png = await run_in_threadpool(get_storage().load, doc.thumbnail_key)
+    return Response(content=png, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
+
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    document_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Exclui o documento e seus artefatos (texto/capa) do storage."""
+    doc = await db.get(Document, document_id)
+    if not doc or doc.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
+
+    storage = get_storage()
+    for key in (doc.storage_key, doc.extracted_key, doc.thumbnail_key):
+        if key:
+            try:
+                await run_in_threadpool(storage.delete, key)
+            except Exception:  # pragma: no cover - best-effort no storage
+                logger.warning("Falha ao remover artefato %s", key)
+    await db.delete(doc)  # chunks/associações caem por cascade
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{document_id}/extract")
@@ -132,6 +196,10 @@ async def extract_document(
     # Persiste o texto completo como artefato (nunca vai cru ao contexto).
     text_key = doc.storage_key.rsplit(".", 1)[0] + ".txt"
     await run_in_threadpool(storage.save, text_key, result.text.encode("utf-8"))
+
+    # Garante a capa (ex.: documentos que subiram via presigned, sem passar bytes).
+    if not doc.thumbnail_key:
+        await _make_thumbnail(doc, data, storage)
 
     doc.page_count = result.page_count
     doc.extracted_key = text_key

@@ -9,13 +9,14 @@ from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
 from openai import AsyncOpenAI
+from sqlalchemy import select
 
 from . import context
 from .config import get_settings
 from .database import AsyncSessionLocal
 from .models import Message
 from .models import Session as SessionRow
-from .models import TurnMetric
+from .models import SessionDocument, TurnMetric
 from .observability import TurnMetrics, estimate_cost, log_turn
 
 logger = logging.getLogger("thinkai.llm")
@@ -57,12 +58,13 @@ def _sse(payload: str) -> str:
     return f"data: {json.dumps({'t': payload})}\n\n"
 
 
-async def _retrieve_rag_hits(db, *, user_id, query, settings):
+async def _retrieve_rag_hits(db, *, user_id, query, settings, document_ids=None):
     """Recupera trechos do material do usuário para o turno (RAG, issue #34).
 
     Só embeda a pergunta se o usuário tiver algum chunk indexado (evita custo à
-    toa). Limita os hits pela cota ``rag_max_tokens``. Nunca quebra o chat: se o
-    RAG falhar (embedder indisponível etc.), segue sem hits.
+    toa). Quando a conversa tem documentos selecionados (Biblioteca), restringe a
+    busca a eles. Limita os hits pela cota ``rag_max_tokens``. Nunca quebra o
+    chat: se o RAG falhar (embedder indisponível etc.), segue sem hits.
     """
     from sqlalchemy import select
 
@@ -77,7 +79,12 @@ async def _retrieve_rag_hits(db, *, user_id, query, settings):
             return None
 
         chunks = await retrieve(
-            db, get_embedder(settings), user_id=user_id, query=query, k=settings.rag_top_k
+            db,
+            get_embedder(settings),
+            user_id=user_id,
+            query=query,
+            k=settings.rag_top_k,
+            document_ids=document_ids,
         )
         hits = await build_rag_hits(db, chunks)
 
@@ -136,7 +143,23 @@ async def stream_openai_compatible(
         db.add(Message(session_id=session_id, role="user", content=content, created_at=now))
         await db.commit()
 
-        rag_hits = await _retrieve_rag_hits(db, user_id=user_id, query=content, settings=settings)
+        # Documentos selecionados para esta conversa (Biblioteca) restringem o RAG.
+        scoped_docs = list(
+            (
+                await db.execute(
+                    select(SessionDocument.document_id).where(
+                        SessionDocument.session_id == session_id
+                    )
+                )
+            ).scalars()
+        )
+        rag_hits = await _retrieve_rag_hits(
+            db,
+            user_id=user_id,
+            query=content,
+            settings=settings,
+            document_ids=scoped_docs or None,
+        )
 
         messages, breakdown = await context.assemble_messages(
             db,

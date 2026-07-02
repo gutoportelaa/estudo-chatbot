@@ -102,6 +102,20 @@ def get_ocr_engine(settings) -> OcrEngine:
 # ---------------------------------------------------------------------------
 
 
+def render_first_page_png(data: bytes, *, width: int = 400) -> bytes:
+    """Renderiza a 1ª página do PDF como PNG (capa para a Biblioteca, #C2).
+
+    Escala para ~``width`` px de largura — leve o suficiente para uma miniatura.
+    """
+    import fitz  # PyMuPDF (import tardio)
+
+    with fitz.open(stream=data, filetype="pdf") as doc:
+        page = doc.load_page(0)
+        zoom = width / page.rect.width if page.rect.width else 1.0
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+        return pix.tobytes("png")
+
+
 def extract_pdf(
     data: bytes,
     *,
