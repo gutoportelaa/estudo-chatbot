@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from google.adk.errors.already_exists_error import AlreadyExistsError
 from google.genai import types as genai_types
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user
@@ -197,6 +197,28 @@ async def attach_session_documents(
     for d in doc_ids:
         if d not in existing:
             db.add(SessionDocument(session_id=session_id, document_id=d))
+    await db.commit()
+    return {"document_ids": await _session_document_ids(db, session_id)}
+
+
+@router.delete("/{session_id}/documents/{document_id}")
+async def detach_session_document(
+    session_id: str,
+    document_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Remove um documento do escopo da conversa. O RAG deixa de considerá-lo;
+    o histórico já trocado permanece intacto."""
+    session = await db.get(Session, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sessão não encontrada")
+    await db.execute(
+        delete(SessionDocument).where(
+            SessionDocument.session_id == session_id,
+            SessionDocument.document_id == document_id,
+        )
+    )
     await db.commit()
     return {"document_ids": await _session_document_ids(db, session_id)}
 

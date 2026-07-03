@@ -14,6 +14,7 @@ interface Props {
   onOpenUsage: () => void;
   onOpenBiblioteca: () => void;
   bibliotecaActive: boolean;
+  consumoActive: boolean;
 }
 
 export function Sidebar({
@@ -28,6 +29,7 @@ export function Sidebar({
   onOpenUsage,
   onOpenBiblioteca,
   bibliotecaActive,
+  consumoActive,
 }: Props) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
@@ -117,7 +119,11 @@ export function Sidebar({
         </nav>
 
         <div className="sidebar-footer">
-          <button className="sidebar-prefs-btn" onClick={onOpenUsage} title="Consumo de tokens e custo">
+          <button
+            className={`sidebar-prefs-btn${consumoActive ? " is-active" : ""}`}
+            onClick={onOpenUsage}
+            title="Consumo de tokens e custo"
+          >
             <ChartIcon />
             <span>Consumo</span>
           </button>

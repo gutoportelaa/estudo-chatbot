@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user
@@ -31,6 +31,9 @@ async def usage(
         TurnMetric.user_id == current_user.id, TurnMetric.created_at >= since
     ).subquery()
 
+    is_error = case((base.c.status == "error", 1), else_=0)
+    used_rag = case((base.c.rag_tokens > 0, 1), else_=0)
+
     # Totais.
     totals_row = (
         await db.execute(
@@ -40,15 +43,22 @@ async def usage(
                 func.coalesce(func.sum(base.c.output_tokens), 0),
                 func.coalesce(func.sum(base.c.cost_usd), 0.0),
                 func.coalesce(func.avg(base.c.latency_ms), 0.0),
+                func.coalesce(func.sum(is_error), 0),
+                func.coalesce(func.sum(used_rag), 0),
             )
         )
     ).one()
+    requests = int(totals_row[0])
+    errors = int(totals_row[5])
     totals = {
-        "requests": int(totals_row[0]),
+        "requests": requests,
         "input_tokens": int(totals_row[1]),
         "output_tokens": int(totals_row[2]),
         "cost_usd": round(float(totals_row[3]), 6),
         "avg_latency_ms": round(float(totals_row[4]), 1),
+        "errors": errors,
+        "success_rate": round((requests - errors) / requests, 4) if requests else 1.0,
+        "rag_requests": int(totals_row[6]),
     }
 
     # Série por dia.
@@ -61,6 +71,7 @@ async def usage(
                 func.coalesce(func.sum(base.c.input_tokens), 0),
                 func.coalesce(func.sum(base.c.output_tokens), 0),
                 func.coalesce(func.sum(base.c.cost_usd), 0.0),
+                func.coalesce(func.sum(is_error), 0),
             )
             .group_by(day)
             .order_by(day)
@@ -73,6 +84,7 @@ async def usage(
             "input_tokens": int(r[2]),
             "output_tokens": int(r[3]),
             "cost_usd": round(float(r[4]), 6),
+            "errors": int(r[5]),
         }
         for r in by_day_rows
     ]
@@ -102,4 +114,24 @@ async def usage(
         for r in by_model_rows
     ]
 
-    return {"days": days, "totals": totals, "by_day": by_day, "by_model": by_model}
+    # Falhas recentes (para inspeção no dashboard).
+    recent_error_rows = (
+        await db.execute(
+            select(base.c.created_at, base.c.model, base.c.error)
+            .where(base.c.status == "error")
+            .order_by(base.c.created_at.desc())
+            .limit(10)
+        )
+    ).all()
+    recent_errors = [
+        {"created_at": str(r[0]), "model": r[1], "error": r[2] or "erro desconhecido"}
+        for r in recent_error_rows
+    ]
+
+    return {
+        "days": days,
+        "totals": totals,
+        "by_day": by_day,
+        "by_model": by_model,
+        "recent_errors": recent_errors,
+    }

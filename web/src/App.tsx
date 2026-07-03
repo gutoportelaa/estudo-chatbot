@@ -1,13 +1,7 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
-import {
-  attachDocuments,
-  extractDocument,
-  fetchModelName,
-  getSessionDocuments,
-  indexDocument,
-  uploadDocument,
-} from "./api/client";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { fetchModelName, getSessionDocuments } from "./api/client";
 import { ChatInput } from "./components/ChatInput";
+import { DocumentPanel } from "./components/DocumentPanel";
 import { Greeting } from "./components/Greeting";
 import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
@@ -18,7 +12,7 @@ import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
 import { useTheme } from "./hooks/useTheme";
 import { PreferencesModal } from "./components/PreferencesModal";
-import { ConsumptionModal } from "./components/ConsumptionModal";
+import { ConsumoView } from "./components/ConsumoView";
 import { MemoryBadge } from "./components/MemoryBadge";
 import { BibliotecaView } from "./components/BibliotecaView";
 
@@ -26,8 +20,7 @@ export default function App() {
   const { theme, toggleTheme, colorStart, colorEnd, setColorStart, setColorEnd } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
-  const [usageOpen, setUsageOpen] = useState(false);
-  const [view, setView] = useState<"chat" | "biblioteca">("chat");
+  const [view, setView] = useState<"chat" | "biblioteca" | "consumo">("chat");
   const [modelName, setModelName] = useState("");
 
   useEffect(() => {
@@ -43,41 +36,34 @@ export default function App() {
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
 
   // Documentos escopados à conversa atual (Biblioteca / clipe do chat).
-  const [attachedCount, setAttachedCount] = useState(0);
-  const [attaching, setAttaching] = useState(false);
+  const [attachedIds, setAttachedIds] = useState<string[]>([]);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   useEffect(() => {
     if (!sessionId) {
-      setAttachedCount(0);
+      setAttachedIds([]);
       return;
     }
     let active = true;
     getSessionDocuments(sessionId)
-      .then((ids) => active && setAttachedCount(ids.length))
-      .catch(() => active && setAttachedCount(0));
+      .then((ids) => active && setAttachedIds(ids))
+      .catch(() => active && setAttachedIds([]));
     return () => {
       active = false;
     };
   }, [sessionId]);
 
-  const handleAttach = useCallback(
-    async (file: File) => {
-      if (!sessionId) return;
-      setAttaching(true);
-      try {
-        const doc = await uploadDocument(file);
-        await extractDocument(doc.id).catch(() => null);
-        await indexDocument(doc.id).catch(() => null);
-        const ids = await attachDocuments(sessionId, [doc.id]);
-        setAttachedCount(ids.length);
-      } catch {
-        // silencioso: o chat continua funcionando mesmo se o anexo falhar
-      } finally {
-        setAttaching(false);
-      }
-    },
-    [sessionId],
-  );
+  // Título é gerado no backend no 1º turno; ao encerrar o streaming, se a sessão
+  // ainda estiver sem título (ex.: conversa iniciada pela Biblioteca), sincroniza
+  // a lista para o título aparecer no sidebar.
+  const prevStreaming = useRef(false);
+  useEffect(() => {
+    const finished = prevStreaming.current && !isStreaming;
+    prevStreaming.current = isStreaming;
+    if (!finished) return;
+    const current = sessions.sessions.find((s) => s.id === sessionId);
+    if (current && !current.title?.trim()) void sessions.refresh();
+  }, [isStreaming, sessionId, sessions]);
 
   const hasConversation = messages.length > 0;
 
@@ -206,9 +192,10 @@ export default function App() {
           await sessions.removeSession(id);
         }}
         onOpenPreferences={() => setPrefsOpen(true)}
-        onOpenUsage={() => setUsageOpen(true)}
+        onOpenUsage={() => setView("consumo")}
         onOpenBiblioteca={() => setView("biblioteca")}
         bibliotecaActive={view === "biblioteca"}
+        consumoActive={view === "consumo"}
       />
 
       <PreferencesModal
@@ -220,8 +207,6 @@ export default function App() {
         setColorEnd={setColorEnd}
       />
 
-      <ConsumptionModal isOpen={usageOpen} onClose={() => setUsageOpen(false)} />
-
       <div className="window">
         <Header
           theme={theme}
@@ -231,54 +216,70 @@ export default function App() {
           onLogout={auth.logout}
         />
 
-        {view === "biblioteca" ? (
-          <main className="content is-biblioteca">
-            <BibliotecaView
-              onStartConversation={async (documentIds) => {
-                await sessions.createNewSession(documentIds);
-                setView("chat");
-              }}
-            />
-          </main>
-        ) : (
-          <main className={`content ${hasConversation ? "is-chat" : "is-empty"}`}>
-            {hasConversation ? (
-              <>
-                <MemoryBadge sessionId={sessionId} refreshKey={messages.length} />
-                <MessageList messages={messages} />
-              </>
+        <div className={`window-body${panelOpen && view === "chat" ? " has-panel" : ""}`}>
+          <div className="chat-column">
+            {view === "consumo" ? (
+              <main className="content is-biblioteca">
+                <ConsumoView />
+              </main>
+            ) : view === "biblioteca" ? (
+              <main className="content is-biblioteca">
+                <BibliotecaView
+                  onStartConversation={async (documentIds) => {
+                    await sessions.createNewSession(documentIds);
+                    setView("chat");
+                  }}
+                />
+              </main>
             ) : (
-              <div className="welcome">
-                <Greeting username={auth.user.username} />
-                <PromptCards onPick={(p) => setDraft(p)} />
-              </div>
+              <main className={`content ${hasConversation ? "is-chat" : "is-empty"}`}>
+                {hasConversation ? (
+                  <>
+                    <MemoryBadge sessionId={sessionId} refreshKey={messages.length} />
+                    <MessageList messages={messages} />
+                  </>
+                ) : (
+                  <div className="welcome">
+                    <Greeting username={auth.user.username} />
+                    <PromptCards onPick={(p) => setDraft(p)} />
+                  </div>
+                )}
+              </main>
             )}
-          </main>
-        )}
 
-        {view === "chat" ? (
-          <footer className="composer">
-            <ChatInput
-              value={draft}
-              onChange={setDraft}
-              onSend={(text) => {
-                setDraft("");
-                send(text);
-              }}
-              disabled={isStreaming || !sessionId}
-              modelName={modelName}
-              onAttach={handleAttach}
-              attaching={attaching}
-              attachedCount={attachedCount}
+            {view === "chat" ? (
+              <footer className="composer">
+                <ChatInput
+                  value={draft}
+                  onChange={setDraft}
+                  onSend={(text) => {
+                    setDraft("");
+                    send(text);
+                  }}
+                  disabled={isStreaming || !sessionId}
+                  modelName={modelName}
+                  onOpenAttach={() => setPanelOpen((o) => !o)}
+                  attachedCount={attachedIds.length}
+                />
+                <div className="composer-footer">
+                  <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>
+                  <span className="hint">
+                    Use <kbd>shift + return</kbd> para nova linha
+                  </span>
+                </div>
+              </footer>
+            ) : null}
+          </div>
+
+          {panelOpen && view === "chat" ? (
+            <DocumentPanel
+              sessionId={sessionId}
+              attachedIds={attachedIds}
+              onAttachedChange={setAttachedIds}
+              onClose={() => setPanelOpen(false)}
             />
-            <div className="composer-footer">
-              <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>
-              <span className="hint">
-                Use <kbd>shift + return</kbd> para nova linha
-              </span>
-            </div>
-          </footer>
-        ) : null}
+          ) : null}
+        </div>
       </div>
     </div>
   );

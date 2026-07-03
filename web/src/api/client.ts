@@ -116,6 +116,9 @@ export interface UsageTotals {
   output_tokens: number;
   cost_usd: number;
   avg_latency_ms: number;
+  errors: number;
+  success_rate: number; // 0..1
+  rag_requests: number;
 }
 
 export interface UsageByDay {
@@ -124,6 +127,13 @@ export interface UsageByDay {
   input_tokens: number;
   output_tokens: number;
   cost_usd: number;
+  errors: number;
+}
+
+export interface UsageError {
+  created_at: string;
+  model: string;
+  error: string;
 }
 
 export interface UsageByModel {
@@ -139,6 +149,7 @@ export interface UsageSummary {
   totals: UsageTotals;
   by_day: UsageByDay[];
   by_model: UsageByModel[];
+  recent_errors: UsageError[];
 }
 
 export async function getUsage(days = 30): Promise<UsageSummary> {
@@ -216,6 +227,14 @@ export async function attachDocuments(sessionId: string, documentIds: string[]):
   return data.document_ids ?? [];
 }
 
+export async function detachDocument(sessionId: string, documentId: string): Promise<string[]> {
+  const data = await req<{ document_ids: string[] }>(
+    `/sessions/${sessionId}/documents/${documentId}`,
+    { method: "DELETE" },
+  );
+  return data.document_ids ?? [];
+}
+
 export async function renameSession(sessionId: string, title: string): Promise<SessionSummary> {
   return req<SessionSummary>(`/sessions/${sessionId}`, {
     method: "PATCH",
@@ -246,6 +265,68 @@ export async function uploadDocument(file: File): Promise<DocumentItem> {
   const form = new FormData();
   form.append("file", file);
   return req<DocumentItem>("/documents", { method: "POST", body: form });
+}
+
+/** Handle para cancelar um upload em andamento. */
+export interface UploadHandle {
+  promise: Promise<DocumentItem>;
+  cancel: () => void;
+}
+
+/**
+ * Upload com progresso real (via XMLHttpRequest, que expõe `upload.onprogress`)
+ * e cancelamento. `onProgress` recebe 0–100.
+ */
+export function uploadDocumentWithProgress(
+  file: File,
+  onProgress: (percent: number) => void,
+): UploadHandle {
+  const xhr = new XMLHttpRequest();
+  const form = new FormData();
+  form.append("file", file);
+
+  const promise = new Promise<DocumentItem>((resolve, reject) => {
+    xhr.open("POST", `${API_URL}/documents`);
+    const token = readToken();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as DocumentItem);
+        } catch {
+          reject(new ApiError(xhr.status, "Resposta inválida do servidor"));
+        }
+      } else {
+        if (xhr.status === 401) logout();
+        let detail = `Erro ${xhr.status}`;
+        try {
+          detail = (JSON.parse(xhr.responseText) as ApiErrorPayload).detail ?? detail;
+        } catch {
+          /* corpo não-JSON */
+        }
+        reject(new ApiError(xhr.status, detail));
+      }
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Falha de rede no upload"));
+    xhr.onabort = () => reject(new ApiError(0, "Upload cancelado"));
+    xhr.send(form);
+  });
+
+  return { promise, cancel: () => xhr.abort() };
+}
+
+/** Baixa o PDF original autenticado e devolve um object URL para embutir. */
+export async function fetchPdfUrl(id: string): Promise<string> {
+  const token = readToken();
+  const res = await fetch(`${API_URL}/documents/${id}/raw`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new ApiError(res.status, `Erro ${res.status}`);
+  return URL.createObjectURL(await res.blob());
 }
 
 export async function extractDocument(id: string): Promise<unknown> {

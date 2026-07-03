@@ -7,6 +7,7 @@ import {
   renameSession,
   type SessionSummary,
 } from "../api/client";
+import { dropSession } from "./chatStore";
 
 function storageKey(userId: string | null): string {
   return `thinkai.active_session_id:${userId ?? "anonymous"}`;
@@ -111,6 +112,7 @@ export function useSessions(userId: string | null, enabled: boolean) {
   const removeSession = useCallback(
     async (sessionId: string) => {
       await deleteSession(sessionId);
+      dropSession(sessionId);
       await refresh();
     },
     [refresh],

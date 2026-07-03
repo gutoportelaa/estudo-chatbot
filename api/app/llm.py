@@ -173,6 +173,7 @@ async def stream_openai_compatible(
         )
 
     full_text = ""
+    error_text: str | None = None
     started = time.monotonic()
 
     try:
@@ -184,15 +185,16 @@ async def stream_openai_compatible(
                 full_text += delta
                 yield _sse(delta)
     except Exception as exc:
-        yield f"data: {json.dumps({'error': str(exc)[:300]})}\n\n"
-        return
-
-    yield "data: [DONE]\n\n"
+        error_text = str(exc)[:300]
+        yield f"data: {json.dumps({'error': error_text})}\n\n"
+    else:
+        yield "data: [DONE]\n\n"
 
     # Observabilidade do turno (issue #37): quebra de tokens por bloco + saída,
     # latência e custo estimado. Emitido como log estruturado (JSON) e persistido
-    # para a tela de Consumo.
+    # para a tela de Consumo. Falhas também são registradas (status="error").
     output_tokens = context.estimate_tokens(full_text)
+    latency_ms = round((time.monotonic() - started) * 1000, 1)
     metrics = TurnMetrics(
         session_id=session_id,
         model=model,
@@ -205,7 +207,7 @@ async def stream_openai_compatible(
         tokens_tool=breakdown.tool,
         input_tokens=breakdown.total,
         output_tokens=output_tokens,
-        latency_ms=round((time.monotonic() - started) * 1000, 1),
+        latency_ms=latency_ms,
         cost_usd=estimate_cost(model, breakdown.total, output_tokens),
     )
     log_turn(metrics)
@@ -214,14 +216,17 @@ async def stream_openai_compatible(
         session_row = await db.get(SessionRow, session_id)
         if session_row:
             session_row.updated_at = datetime.now(timezone.utc)
-        db.add(
-            Message(
-                session_id=session_id,
-                role="assistant",
-                content=full_text,
-                created_at=datetime.now(timezone.utc),
+        # Só grava a resposta do assistente quando houve texto (turnos que falharam
+        # antes de qualquer token não poluem o histórico).
+        if full_text:
+            db.add(
+                Message(
+                    session_id=session_id,
+                    role="assistant",
+                    content=full_text,
+                    created_at=datetime.now(timezone.utc),
+                )
             )
-        )
         db.add(
             TurnMetric(
                 user_id=user_id,
@@ -232,6 +237,9 @@ async def stream_openai_compatible(
                 output_tokens=metrics.output_tokens,
                 latency_ms=metrics.latency_ms,
                 cost_usd=metrics.cost_usd,
+                status="error" if error_text else "ok",
+                error=error_text,
+                rag_tokens=breakdown.rag,
             )
         )
         await db.commit()

@@ -138,6 +138,27 @@ async def get_thumbnail(
     return Response(content=png, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
 
 
+@router.get("/{document_id}/raw")
+async def get_raw_pdf(
+    document_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Devolve o PDF original (autenticado) para visualização embutida no painel."""
+    doc = await db.get(Document, document_id)
+    if not doc or doc.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
+    data = await run_in_threadpool(get_storage().load, doc.storage_key)
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{doc.filename}"',
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     document_id: str,

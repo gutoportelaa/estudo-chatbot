@@ -7,8 +7,7 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   modelName?: string;
-  onAttach?: (file: File) => void | Promise<void>;
-  attaching?: boolean;
+  onOpenAttach?: () => void;
   attachedCount?: number;
 }
 
@@ -18,12 +17,10 @@ export function ChatInput({
   value,
   onChange,
   modelName,
-  onAttach,
-  attaching,
+  onOpenAttach,
   attachedCount = 0,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const submit = () => {
     if (!value.trim() || disabled) return;
@@ -66,29 +63,15 @@ export function ChatInput({
           ) : null}
         </div>
         <div className="chat-input-right">
-          {onAttach ? (
-            <>
-              <button
-                className="icon-btn ghost"
-                onClick={() => fileRef.current?.click()}
-                disabled={disabled || attaching}
-                aria-label="Anexar PDF à conversa"
-                title={attaching ? "Anexando…" : "Anexar PDF à conversa"}
-              >
-                <PaperclipIcon />
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="application/pdf"
-                hidden
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void onAttach(file);
-                  e.target.value = "";
-                }}
-              />
-            </>
+          {onOpenAttach ? (
+            <button
+              className="icon-btn ghost"
+              onClick={onOpenAttach}
+              aria-label="Abrir documentos da conversa"
+              title="Documentos da conversa"
+            >
+              <PaperclipIcon />
+            </button>
           ) : null}
           <button
             className="send-btn"

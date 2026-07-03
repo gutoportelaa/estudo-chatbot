@@ -1,85 +1,42 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchMessages, sendMessage, type ChatMessage } from "../api/client";
-
-function uuid(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
-  });
-}
+import { useCallback, useEffect, useSyncExternalStore } from "react";
+import {
+  getSnapshot,
+  loadHistory,
+  send as storeSend,
+  subscribe,
+  type ChatMessage,
+} from "./chatStore";
 
 export type { ChatMessage };
 
-export function useChat(sessionId: string | null) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const EMPTY = { messages: [] as ChatMessage[], isStreaming: false, error: null as string | null };
 
-  // Acumula tokens sem re-render a cada um
-  const bufferRef = useRef("");
-  const rafRef = useRef<number | null>(null);
-  const assistantIdRef = useRef<string | null>(null);
+/**
+ * Assinante fino do `chatStore`. O estado de streaming vive no store de módulo,
+ * então navegar entre páginas/sessões nunca interrompe uma geração em curso.
+ */
+export function useChat(sessionId: string | null) {
+  const state = useSyncExternalStore(
+    useCallback((cb) => (sessionId ? subscribe(sessionId, cb) : () => {}), [sessionId]),
+    () => (sessionId ? getSnapshot(sessionId) : EMPTY),
+    () => EMPTY,
+  );
 
   useEffect(() => {
-    if (!sessionId) { setMessages([]); return; }
-    fetchMessages(sessionId).then((history) => setMessages(history)).catch(() => setMessages([]));
+    if (sessionId) void loadHistory(sessionId);
   }, [sessionId]);
 
   const send = useCallback(
-    async (text: string) => {
-      if (!sessionId || !text.trim() || isStreaming) return;
-      setError(null);
-
-      const userMsg: ChatMessage = { id: uuid(), role: "user", content: text.trim() };
-      const assistantId = uuid();
-      assistantIdRef.current = assistantId;
-      bufferRef.current = "";
-
-      setMessages((prev) => [...prev, userMsg, { id: assistantId, role: "assistant", content: "", streaming: true }]);
-      setIsStreaming(true);
-
-      // Atualiza o state a ~60fps com o conteúdo acumulado no buffer
-      const flush = () => {
-        const text = bufferRef.current;
-        if (text !== null) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantIdRef.current ? { ...m, content: text } : m,
-            ),
-          );
-        }
-        rafRef.current = requestAnimationFrame(flush);
-      };
-      rafRef.current = requestAnimationFrame(flush);
-
-      try {
-        await sendMessage(sessionId, text.trim(), (chunk) => {
-          bufferRef.current += chunk;
-        });
-      } catch {
-        setError("Não foi possível obter resposta. Verifique se a API está ativa.");
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId && m.content === ""
-              ? { ...m, content: "⚠️ Erro ao gerar resposta." }
-              : m,
-          ),
-        );
-      } finally {
-        if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-        // Flush final para garantir que o último conteúdo seja renderizado
-        const finalText = bufferRef.current;
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId ? { ...m, content: finalText, streaming: false } : m,
-          ),
-        );
-        setIsStreaming(false);
-      }
+    (text: string) => {
+      if (sessionId) void storeSend(sessionId, text);
     },
-    [sessionId, isStreaming],
+    [sessionId],
   );
 
-  return { messages, isStreaming, error, send };
+  return {
+    messages: state.messages,
+    isStreaming: state.isStreaming,
+    error: state.error,
+    send,
+  };
 }
