@@ -143,6 +143,23 @@ Operações: adicionar (dropzone ou clipe do chat), ordenar, excluir e **selecio
 documentos para uma conversa** — o RAG fica restrito a eles (`SessionDocument`).
 O clipe (📎) do chat anexa um PDF à conversa atual em andamento.
 
+### Etapa 15 — Painel lateral de documentos + streaming resiliente + Consumo dedicado
+
+- **Split-screen de documentos:** o clipe (📎) abre um **painel lateral** (3ª
+  coluna que empurra o chat) com a biblioteca em grade de capas, **visualização
+  do PDF embutida** (`GET /documents/{id}/raw`), anexar/remover da conversa e
+  exclusão. Upload com **progresso real e cancelamento** (XHR + `AbortController`).
+- **Remoção de anexo por conversa** (`DELETE /sessions/{id}/documents/{docId}`):
+  o RAG deixa de considerar o documento sem afetar o histórico já trocado.
+- **Streaming resiliente:** o estado de geração vive num store de módulo por
+  sessão (`web/src/hooks/chatStore.ts`), então navegar entre páginas ou trocar
+  de sessão **não interrompe** a resposta em curso.
+- **Consumo vira página dedicada** (não mais modal): KPIs de taxa de sucesso,
+  falhas e uso de RAG; gráfico SVG de tokens/dia; requisições × falhas; por
+  modelo; e lista de falhas recentes. O `TurnMetric` passou a registrar
+  `status`/`error`/`rag_tokens` (persistidos **também em falha**) e o
+  `/metrics/usage` agrega falhas, taxa de sucesso e uso de ferramenta.
+
 ---
 
 ## Arquitetura atual
@@ -164,7 +181,7 @@ O clipe (📎) do chat anexa um PDF à conversa atual em andamento.
 | ORM | SQLAlchemy async + Alembic | Migrations versionadas, queries tipadas |
 | Extração de PDF | **PyMuPDF** (nativo) + OCR | Tesseract (local) / AWS Textract (prod) |
 | Embeddings | **Ollama** (dev) / **Gemini** (prod) | Trocável por config; proveniência por chunk + reindex |
-| Observabilidade | Log `turn_metrics` + tabela + tela Consumo | Tokens/custo/latência por turno; CloudWatch na AWS |
+| Observabilidade | Log `turn_metrics` + tabela + página Consumo | Tokens/custo/latência/status/falhas/RAG por turno; CloudWatch na AWS |
 | Armazenamento de arquivos | **S3** (prod) / filesystem (dev) | Abstração `StorageBackend`; IAM Role no S3 |
 | Autenticação | JWT (python-jose + bcrypt) | Stateless, sem dependência de sessão no servidor |
 | Containerização | Docker + Docker Compose | Ambiente idêntico local e produção |
@@ -182,7 +199,7 @@ O clipe (📎) do chat anexa um PDF à conversa atual em andamento.
 | `Document` | PDF enviado: storage + `extraction_status`/`extracted_key`/`thumbnail_key` |
 | `Chunk` | Trecho vetorizado (`embedding` em pgvector) + proveniência do modelo — RAG |
 | `SessionDocument` | Documentos escopados a uma conversa (Biblioteca / clipe) |
-| `TurnMetric` | Métrica persistida por turno (tokens/custo/latência) — tela de Consumo |
+| `TurnMetric` | Métrica persistida por turno (tokens/custo/latência/status/erro/RAG) — página de Consumo |
 | `Summary` / `SummaryDocument` | Resumo (single/consolidado) e associação N:N com documentos |
 
 ### Estrutura de diretórios
@@ -214,11 +231,11 @@ estudo-chatbot/
 │   └── Dockerfile          # tesseract-ocr + alembic upgrade no start
 ├── web/                    # Frontend React (bun)
 │   ├── src/
-│   │   ├── App.tsx         # view chat | biblioteca; modais de Consumo/Preferências
-│   │   ├── api/client.ts   # chat, sessões, documentos, /metrics/usage, thumbnails
-│   │   ├── hooks/          # useSessions, useChat, useAuth, useTheme
+│   │   ├── App.tsx         # views chat | biblioteca | consumo; painel lateral de docs
+│   │   ├── api/client.ts   # chat, sessões, documentos (raw/thumbnail), /metrics/usage
+│   │   ├── hooks/          # useSessions, useChat, chatStore (streaming), useAuth, useTheme
 │   │   ├── components/     # Header, Sidebar, ChatInput, MessageList, BibliotecaView,
-│   │   │                   #   DocumentCard, ConsumptionModal, MemoryBadge, ...
+│   │   │                   #   DocumentCard, DocumentPanel, ConsumoView, MemoryBadge, ...
 │   │   └── styles/         # theme.css (claro/nocturne) + app.css
 │   ├── package.json
 │   └── Dockerfile
@@ -269,6 +286,7 @@ Para o RAG (#34), reusar o Postgres existente com a extensão **pgvector** evita
 - Rate limiting na API (ex.: `slowapi`) — o custo por turno (#37) já é o insumo
 - Embedder **Bedrock Titan** (Gemini já implementado) e índice HNSW no pgvector para escalar o RAG
 - Instrumentar o caminho ADK/Gemini com o mesmo `turn_metrics` e dashboard (CloudWatch/Grafana)
-- Frontend: dashboard do usuário (#46), resumos individual/consolidado (#44/#45), painel lateral de visualização do documento
+- Frontend: resumos individual/consolidado (#44/#45) — reaproveitar o molde do `DocumentPanel` (modo viewer); realce do chunk recuperado sobre o PDF
+- Observabilidade de produção: expor `/metrics` no formato Prometheus + Grafana (a página de Consumo já cobre o dia a dia via `TurnMetric`)
 - Elastic IP fixo na EC2 para não perder o endereço ao reiniciar
 - Unificação das branches divergentes (B1 de perfil) e do débito de migrations
