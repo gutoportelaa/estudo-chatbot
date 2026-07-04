@@ -1,9 +1,7 @@
-/* Design tokens — tema claro (default) e nocturne (escuro), via data-theme. */
-
 :root,
 :root[data-theme="light"] {
   --page-bg: #ececec;
-  --window-bg: linear-gradient(180deg, #eaf6ee 0%, #f3f8f4 35%, #ffffff 100%);
+  --window-bg: linear-gradient(180deg, color-mix(in srgb, var(--theme-gradient-start) 10%, #ffffff) 0%, #ffffff 100%);
   --surface: #ffffff;
   --surface-soft: #f4f6f5;
   --border: #e6e8e7;
@@ -11,22 +9,22 @@
   --text: #1b1d1c;
   --text-muted: #8a8f8c;
   --text-faint: #a8adaa;
-  --accent: #2f8f4e;
-  --accent-soft: #e7f3eb;
-  --shadow: 0 18px 50px rgba(40, 70, 50, 0.12);
+  --accent: var(--theme-gradient-start);
+  --accent-soft: color-mix(in srgb, var(--theme-gradient-start) 10%, transparent);
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.08);
   --input-bg: #ffffff;
   --chip-bg: #eef4f0;
-  --user-bubble: #2f8f4e;
+  --user-bubble: linear-gradient(135deg, var(--theme-gradient-start), var(--theme-gradient-end));
   --user-bubble-text: #ffffff;
   --assistant-bubble: #f4f6f5;
   --sidebar-bg: #f0f2f1;
   --sidebar-item-hover: #e4e8e6;
-  --sidebar-item-active: #dceee3;
+  --sidebar-item-active: color-mix(in srgb, var(--theme-gradient-start) 15%, transparent);
 }
 
 :root[data-theme="nocturne"] {
   --page-bg: #1d1d1d;
-  --window-bg: linear-gradient(180deg, #15231a 0%, #1a201c 30%, #1f2220 100%);
+  --window-bg: linear-gradient(180deg, color-mix(in srgb, var(--theme-gradient-start) 10%, #1a201c) 0%, #1f2220 100%);
   --surface: #262a28;
   --surface-soft: #2b302d;
   --border: #34393600;
@@ -34,17 +32,17 @@
   --text: #f1f3f2;
   --text-muted: #9aa19d;
   --text-faint: #7c827e;
-  --accent: #4cc274;
-  --accent-soft: #23362a;
+  --accent: var(--theme-gradient-start);
+  --accent-soft: color-mix(in srgb, var(--theme-gradient-start) 15%, transparent);
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
   --input-bg: #2c312e;
   --chip-bg: #313631;
-  --user-bubble: #3a9c5c;
+  --user-bubble: linear-gradient(135deg, var(--theme-gradient-start), var(--theme-gradient-end));
   --user-bubble-text: #ffffff;
   --assistant-bubble: #2c312e;
   --sidebar-bg: #1a1e1c;
   --sidebar-item-hover: #252a27;
-  --sidebar-item-active: #243028;
+  --sidebar-item-active: color-mix(in srgb, var(--theme-gradient-start) 20%, transparent);
 }
 
 * {

@@ -1,6 +1,7 @@
-import { type FormEvent, useEffect, useState } from "react";
-import { fetchModelName } from "./api/client";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { fetchModelName, getSessionDocuments } from "./api/client";
 import { ChatInput } from "./components/ChatInput";
+import { DocumentPanel } from "./components/DocumentPanel";
 import { Greeting } from "./components/Greeting";
 import { Header } from "./components/Header";
 import { MessageList } from "./components/MessageList";
@@ -10,10 +11,16 @@ import { useAuth } from "./hooks/useAuth";
 import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
 import { useTheme } from "./hooks/useTheme";
+import { PreferencesModal } from "./components/PreferencesModal";
+import { ConsumoView } from "./components/ConsumoView";
+import { MemoryBadge } from "./components/MemoryBadge";
+import { BibliotecaView } from "./components/BibliotecaView";
 
 export default function App() {
-  const [theme, toggleTheme] = useTheme();
+  const { theme, toggleTheme, colorStart, colorEnd, setColorStart, setColorEnd } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const [view, setView] = useState<"chat" | "biblioteca" | "consumo">("chat");
   const [modelName, setModelName] = useState("");
 
   useEffect(() => {
@@ -27,6 +34,41 @@ export default function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+
+  // Documentos escopados à conversa atual (Biblioteca / clipe do chat).
+  const [attachedIds, setAttachedIds] = useState<string[]>([]);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [webSearch, setWebSearch] = useState(false);
+  // Fonte de RAG clicada numa citação: abre o painel no documento/chunk.
+  const [sourceFocus, setSourceFocus] = useState<
+    { documentId: string; chunkIndex: number; snippet?: string; page?: number | null } | null
+  >(null);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setAttachedIds([]);
+      return;
+    }
+    let active = true;
+    getSessionDocuments(sessionId)
+      .then((ids) => active && setAttachedIds(ids))
+      .catch(() => active && setAttachedIds([]));
+    return () => {
+      active = false;
+    };
+  }, [sessionId]);
+
+  // Título é gerado no backend no 1º turno; ao encerrar o streaming, se a sessão
+  // ainda estiver sem título (ex.: conversa iniciada pela Biblioteca), sincroniza
+  // a lista para o título aparecer no sidebar.
+  const prevStreaming = useRef(false);
+  useEffect(() => {
+    const finished = prevStreaming.current && !isStreaming;
+    prevStreaming.current = isStreaming;
+    if (!finished) return;
+    const current = sessions.sessions.find((s) => s.id === sessionId);
+    if (current && !current.title?.trim()) void sessions.refresh();
+  }, [isStreaming, sessionId, sessions]);
 
   const hasConversation = messages.length > 0;
 
@@ -132,8 +174,14 @@ export default function App() {
         sessions={sessions.sessions}
         activeSessionId={sessionId}
         isOpen={sidebarOpen}
-        onSelect={sessions.setActiveSessionId}
-        onNew={() => void sessions.createNewSession()}
+        onSelect={(id) => {
+          setView("chat");
+          sessions.setActiveSessionId(id);
+        }}
+        onNew={() => {
+          setView("chat");
+          void sessions.createNewSession();
+        }}
         onRename={async (id, currentTitle) => {
           const currentLabel = currentTitle?.trim() || "Conversa sem título";
           const nextTitle = window.prompt("Novo nome da conversa", currentLabel);
@@ -148,6 +196,20 @@ export default function App() {
           if (!window.confirm(`Apagar ${label}? Essa ação não pode ser desfeita.`)) return;
           await sessions.removeSession(id);
         }}
+        onOpenPreferences={() => setPrefsOpen(true)}
+        onOpenUsage={() => setView("consumo")}
+        onOpenBiblioteca={() => setView("biblioteca")}
+        bibliotecaActive={view === "biblioteca"}
+        consumoActive={view === "consumo"}
+      />
+
+      <PreferencesModal
+        isOpen={prefsOpen}
+        onClose={() => setPrefsOpen(false)}
+        colorStart={colorStart}
+        colorEnd={colorEnd}
+        setColorStart={setColorStart}
+        setColorEnd={setColorEnd}
       />
 
       <div className="window">
@@ -159,35 +221,86 @@ export default function App() {
           onLogout={auth.logout}
         />
 
-        <main className={`content ${hasConversation ? "is-chat" : "is-empty"}`}>
-          {hasConversation ? (
-            <MessageList messages={messages} />
-          ) : (
-            <div className="welcome">
-              <Greeting username={auth.user.username} />
-              <PromptCards onPick={(p) => setDraft(p)} />
-            </div>
-          )}
-        </main>
+        <div className={`window-body${panelOpen && view === "chat" ? " has-panel" : ""}`}>
+          <div className="chat-column">
+            {view === "consumo" ? (
+              <main className="content is-biblioteca">
+                <ConsumoView />
+              </main>
+            ) : view === "biblioteca" ? (
+              <main className="content is-biblioteca">
+                <BibliotecaView
+                  onStartConversation={async (documentIds) => {
+                    await sessions.createNewSession(documentIds);
+                    setView("chat");
+                  }}
+                />
+              </main>
+            ) : (
+              <main className={`content ${hasConversation ? "is-chat" : "is-empty"}`}>
+                {hasConversation ? (
+                  <>
+                    <MemoryBadge sessionId={sessionId} refreshKey={messages.length} />
+                    <MessageList
+                      messages={messages}
+                      onOpenSource={(s) => {
+                        if (s.kind !== "rag" || !s.document_id) return;
+                        setSourceFocus({
+                          documentId: s.document_id,
+                          chunkIndex: s.chunk_index ?? 0,
+                          snippet: s.snippet,
+                          page: s.page,
+                        });
+                        setPanelOpen(true);
+                      }}
+                    />
+                  </>
+                ) : (
+                  <div className="welcome">
+                    <Greeting username={auth.user.username} />
+                    <PromptCards onPick={(p) => setDraft(p)} />
+                  </div>
+                )}
+              </main>
+            )}
 
-        <footer className="composer">
-          <ChatInput
-            value={draft}
-            onChange={setDraft}
-            onSend={(text) => {
-              setDraft("");
-              send(text);
-            }}
-            disabled={isStreaming || !sessionId}
-            modelName={modelName}
-          />
-          <div className="composer-footer">
-            <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>
-            <span className="hint">
-              Use <kbd>shift + return</kbd> para nova linha
-            </span>
+            {view === "chat" ? (
+              <footer className="composer">
+                <ChatInput
+                  value={draft}
+                  onChange={setDraft}
+                  onSend={(text) => {
+                    setDraft("");
+                    send(text, { webSearch });
+                  }}
+                  disabled={isStreaming || !sessionId}
+                  modelName={modelName}
+                  onOpenAttach={() => setPanelOpen((o) => !o)}
+                  attachedCount={attachedIds.length}
+                  webSearch={webSearch}
+                  onToggleWebSearch={() => setWebSearch((v) => !v)}
+                />
+                <div className="composer-footer">
+                  <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>
+                  <span className="hint">
+                    Use <kbd>shift + return</kbd> para nova linha
+                  </span>
+                </div>
+              </footer>
+            ) : null}
           </div>
-        </footer>
+
+          {panelOpen && view === "chat" ? (
+            <DocumentPanel
+              sessionId={sessionId}
+              attachedIds={attachedIds}
+              onAttachedChange={setAttachedIds}
+              onClose={() => setPanelOpen(false)}
+              focus={sourceFocus}
+              onFocusHandled={() => setSourceFocus(null)}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );

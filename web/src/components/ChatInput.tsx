@@ -1,6 +1,5 @@
 import { useRef } from "react";
-// import { ImageIcon, PaperclipIcon, SendIcon } from "./icons";
-import { SendIcon } from "./icons";
+import { GlobeIcon, PaperclipIcon, SendIcon } from "./icons";
 
 interface Props {
   onSend: (text: string) => void;
@@ -8,9 +7,23 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   modelName?: string;
+  onOpenAttach?: () => void;
+  attachedCount?: number;
+  webSearch?: boolean;
+  onToggleWebSearch?: () => void;
 }
 
-export function ChatInput({ onSend, disabled, value, onChange, modelName }: Props) {
+export function ChatInput({
+  onSend,
+  disabled,
+  value,
+  onChange,
+  modelName,
+  onOpenAttach,
+  attachedCount = 0,
+  webSearch = false,
+  onToggleWebSearch,
+}: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = () => {
@@ -47,15 +60,34 @@ export function ChatInput({ onSend, disabled, value, onChange, modelName }: Prop
       <div className="chat-input-footer">
         <div className="chat-input-left">
           <span className="model-label">{modelName || "—"}</span>
+          {attachedCount > 0 ? (
+            <span className="attach-chip" title="Documentos nesta conversa">
+              <PaperclipIcon /> {attachedCount}
+            </span>
+          ) : null}
         </div>
         <div className="chat-input-right">
-          {/* Botões de mídia desativados até suporte multimodal ser implementado */}
-          {/* <button className="icon-btn ghost" aria-label="Anexar imagem">
-            <ImageIcon />
-          </button>
-          <button className="icon-btn ghost" aria-label="Anexar arquivo">
-            <PaperclipIcon />
-          </button> */}
+          {onToggleWebSearch ? (
+            <button
+              className={`icon-btn ghost${webSearch ? " is-active" : ""}`}
+              onClick={onToggleWebSearch}
+              aria-pressed={webSearch}
+              aria-label="Buscar na web"
+              title={webSearch ? "Busca na web: ligada" : "Buscar na web"}
+            >
+              <GlobeIcon />
+            </button>
+          ) : null}
+          {onOpenAttach ? (
+            <button
+              className="icon-btn ghost"
+              onClick={onOpenAttach}
+              aria-label="Abrir documentos da conversa"
+              title="Documentos da conversa"
+            >
+              <PaperclipIcon />
+            </button>
+          ) : null}
           <button
             className="send-btn"
             onClick={submit}

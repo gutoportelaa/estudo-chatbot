@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # Banco de dados
     database_url: str = "postgresql+asyncpg://thinkai:thinkai@localhost:5432/thinkai"
 
-    # Provedor LLM: gemini | groq | openrouter
+    # Provedor LLM: gemini | groq | openrouter | ollama
     llm_provider: str = "gemini"
     llm_model: str = ""  # deixe vazio para usar o padrão do provedor
 
@@ -25,6 +25,19 @@ class Settings(BaseSettings):
     # OpenRouter
     openrouter_api_key: str = ""
 
+    # Ollama (local)
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "llama3.2"
+
+    # ----- Busca web (#35) -----
+    # Provedor: "auto" (Tavily se houver chave, senão DuckDuckGo), "tavily", "duckduckgo".
+    web_search_provider: str = "auto"
+    tavily_api_key: str = ""
+    web_search_max_results: int = 5  # top-N fontes recuperadas
+    web_search_max_tokens: int = 1500  # cota do conteúdo (síntese+trechos) no contexto
+    # Aciona busca por heurística mesmo sem o toggle (datas/"hoje"/URLs/"pesquise"...).
+    web_search_heuristic: bool = True
+
     # Auth / JWT
     secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
@@ -36,8 +49,75 @@ class Settings(BaseSettings):
     # System prompt do agente
     system_prompt: str = (
         "Você é o ThinkAI, um assistente prestativo, claro e conciso. "
-        "Responda no mesmo idioma da pergunta."
+        "Responda no mesmo idioma da pergunta. "
+        "Quando o usuário pedir um mapa mental, mindmap, diagrama ou esquema, "
+        "responda com um bloco de código de linguagem `markmap` contendo um "
+        "outline em markdown: um único título `#` como tópico central, `##` para "
+        "os ramos principais e itens de lista `-` (aninháveis) para as folhas. "
+        "Mantenha os rótulos curtos. Exemplo:\n"
+        "```markmap\n# Tópico central\n## Ramo A\n- item\n- item\n## Ramo B\n- item\n```\n"
+        "Você pode acompanhar o mapa com uma breve explicação em texto."
     )
+
+    # ----- Gestão de histórico (janela deslizante + sumarização híbrida) -----
+    # Estratégia: "hybrid" (buffer recente + resumo), "window" (só janela), "off".
+    history_strategy: str = "hybrid"
+    # N mensagens recentes mantidas verbatim na janela.
+    history_window_messages: int = 12
+    # Quantas mensagens precisam sair da janela para disparar uma compactação.
+    history_summarize_after_messages: int = 6
+    # Limiar de tokens do resumo: acima disso, recompacta (resumo-de-resumo).
+    history_summary_max_tokens: int = 600
+    # Modelo usado para sumarizar (vazio = mesmo modelo do chat).
+    summarizer_model: str = ""
+
+    # ----- Contrato de contexto para ferramentas (tool-output budgeting) -----
+    # Cota de tokens que a saída das ferramentas pode ocupar no prompt; o
+    # conteúdo cru acima disso vira artefato recuperável (S3/DB/RAG), não prompt.
+    tool_output_max_tokens: int = 2000
+
+    # ----- Extração de material (PDF/imagem) — issue #33 -----
+    # Engine de OCR para PDF escaneado/imagem: "tesseract" (local) | "textract" (AWS).
+    ocr_engine: str = "tesseract"
+    # Idiomas do Tesseract (ex.: "por+eng"). Textract detecta automaticamente.
+    ocr_language: str = "por+eng"
+    # Abaixo de ~N chars por página no texto nativo, assume PDF escaneado → OCR.
+    extraction_ocr_min_chars_per_page: int = 100
+
+    # ----- RAG: embeddings + pgvector (recuperação seletiva) — issue #34 -----
+    # Provedor de embeddings: "ollama" (dev, OpenAI-compat) | "gemini" | "bedrock".
+    embedding_provider: str = "ollama"
+    # Modelo de embeddings (vazio = padrão do provedor: ollama→chat, gemini→gemini-embedding-001).
+    embedding_model: str = ""
+    # Endpoint OpenAI-compatível do Gemini (embeddings de produção).
+    gemini_openai_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    # Chunking do texto extraído (em caracteres) e sobreposição entre chunks.
+    rag_chunk_size: int = 1000
+    rag_chunk_overlap: int = 150
+    # Quantos trechos recuperar por turno.
+    rag_top_k: int = 4
+    # Cota de tokens do bloco de RAG no contexto (subconjunto de tool budget).
+    rag_max_tokens: int = 1500
+
+    # ----- Context Compaction nativo do ADK (caminho Gemini) -----
+    adk_compaction_enabled: bool = False
+    adk_compaction_interval: int = 4
+    adk_compaction_overlap: int = 1
+    adk_compaction_token_threshold: int = 4000
+    adk_compaction_retention: int = 6
+
+    # ----- Armazenamento de documentos (PDFs) -----
+    # Backend: "local" (filesystem, ideal p/ dev) | "s3" (produção)
+    storage_backend: str = "local"
+    # Diretório-raiz quando storage_backend = "local".
+    storage_dir: str = "./data/documents"
+    # Tamanho máximo de upload, em MB (RF-002).
+    max_upload_mb: int = 50
+    # S3 (storage_backend = "s3")
+    s3_bucket: str = ""
+    s3_region: str = "us-east-1"
+    # Validade das presigned URLs, em segundos.
+    presign_expire_seconds: int = 900
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -14,6 +14,50 @@ jobs:
     env:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
     steps:
+      - name: Aguardar SSH da EC2 ficar disponível
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          MAX_ATTEMPTS: 8
+          PROBE_TIMEOUT: 5
+          SLEEP_SECONDS: 10
+        run: |
+          python3 - <<'PY'
+          import os
+          import socket
+          import sys
+          import time
+
+          host = os.environ["EC2_HOST"]
+          try:
+              max_attempts = int(os.environ["MAX_ATTEMPTS"])
+              probe_timeout = int(os.environ["PROBE_TIMEOUT"])
+              sleep_seconds = int(os.environ["SLEEP_SECONDS"])
+          except ValueError as exc:
+              print(f"::error::Valor inválido em variável de ambiente numérica: {exc}")
+              sys.exit(1)
+          last_error = None
+
+          for attempt in range(1, max_attempts + 1):
+              try:
+                  with socket.create_connection((host, 22), timeout=probe_timeout):
+                      print(f"SSH disponível na tentativa {attempt}.")
+                      sys.exit(0)
+              except (socket.timeout, ConnectionRefusedError, OSError) as exc:
+                  last_error = exc
+                  print(
+                      f"Aguardando SSH da EC2... tentativa {attempt}/{max_attempts} "
+                      f"(erro: {exc})"
+                  )
+                  if attempt < max_attempts:
+                      time.sleep(sleep_seconds)
+
+          print(
+              f"::error::Não foi possível acessar {host}:22 após {max_attempts} tentativas. "
+              f"Último erro: {last_error}"
+          )
+          sys.exit(1)
+          PY
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -21,6 +65,8 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: GHCR_TOKEN
+          timeout: 2m
+          command_timeout: 15m
           script: |
             echo $GHCR_TOKEN | docker login ghcr.io -u gutoportelaa --password-stdin
             cd ~/estudo-chatbot
