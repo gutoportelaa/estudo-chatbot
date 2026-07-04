@@ -1447,6 +1447,339 @@ button {
   font-family: inherit;
 }
 
+/* ---------- Inspector de contexto (sumarização recursiva #31/D) ---------- */
+.memory-badge.is-clickable {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.ctx-stats {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0 18px;
+}
+
+.ctx-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.ctx-stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ctx-stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.ctx-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ctx-step {
+  position: relative;
+  padding: 0 0 16px 22px;
+  border-left: 2px solid var(--border-strong);
+}
+
+.ctx-step:last-child {
+  border-left-color: transparent;
+}
+
+.ctx-step-dot {
+  position: absolute;
+  left: -7px;
+  top: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+}
+
+.ctx-step.is-recompact .ctx-step-dot {
+  background: #e5a23d;
+}
+
+.ctx-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ctx-step-order {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.ctx-step-kind {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ctx-step-kind.is-recompact {
+  background: color-mix(in srgb, #e5a23d 18%, transparent);
+  color: #b8791f;
+}
+
+.ctx-step-date {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: auto;
+}
+
+.ctx-step-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* ---------- Toggle de busca web ativo ---------- */
+.icon-btn.ghost.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ---------- Indicador de etapas ("pensando") ---------- */
+.msg-stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.msg-stage-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: msg-stage-spin 0.7s linear infinite;
+}
+
+@keyframes msg-stage-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------- Ícone lateral de referências + popover ---------- */
+.msg-ref {
+  position: relative;
+  align-self: flex-end;
+  margin: 0 2px 2px 4px;
+}
+
+.msg-ref-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 3px 8px 3px 6px;
+  cursor: pointer;
+}
+
+.msg-ref-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.msg-ref-count {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.msg-ref-toggle:hover,
+.msg-ref-toggle.is-open {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.msg-ref-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: 320px;
+  max-width: 78vw;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+}
+
+/* ---------- Bloco de fontes/citações na mensagem (#35/#34) ---------- */
+.msg-sources {
+  /* Dentro do popover: sem borda/topo extra. */
+}
+
+.msg-ref-popover .msg-sources {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.msg-sources-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+
+.msg-sources-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.msg-source-link {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--text);
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+
+a.msg-source-link:hover {
+  background: var(--surface-soft);
+}
+
+.msg-source-idx {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.msg-source-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.msg-source-name {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msg-source-host {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.msg-source-link.is-button {
+  width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* Trecho citado no topo do visualizador de PDF (citação de RAG). */
+.doc-viewer-chunk {
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.doc-viewer-chunk-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.doc-viewer-chunk p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* ---------- Mapa mental Markmap no chat (#36) ---------- */
+.mindmap-view {
+  height: 360px;
+  width: 100%;
+  margin: 10px 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-soft);
+}
+
+.mindmap-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Markmap 0.18 renderiza o rótulo num <foreignObject> (div HTML), não <text>:
+   a cor do texto é definida aqui para herdar o tema (claro/escuro). */
+.mindmap-view .markmap-foreign {
+  color: var(--text);
+  font-family: inherit;
+}
+
+.mindmap-view .markmap-foreign a {
+  color: var(--accent);
+}
+
+.mindmap-view .markmap-link {
+  stroke: var(--text-faint);
+}
+
+/* Um mapa mental precisa de mais largura que uma bolha de texto comum. */
+.message-assistant .message-bubble:has(.mindmap-view) {
+  max-width: 100%;
+  width: min(680px, 100%);
+}
+
 /* ---------- Split-screen: corpo da janela + coluna do chat ---------- */
 .window-body {
   flex: 1;

@@ -27,8 +27,8 @@ export function useChat(sessionId: string | null) {
   }, [sessionId]);
 
   const send = useCallback(
-    (text: string) => {
-      if (sessionId) void storeSend(sessionId, text);
+    (text: string, opts?: { webSearch?: boolean }) => {
+      if (sessionId) void storeSend(sessionId, text, opts);
     },
     [sessionId],
   );

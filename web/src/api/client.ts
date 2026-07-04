@@ -14,11 +14,24 @@ export interface SessionSummary {
   updated_at?: string;
 }
 
+export interface MessageSource {
+  kind: "web" | "rag";
+  title: string;
+  url?: string;
+  snippet?: string;
+  score?: number;
+  document_id?: string;
+  chunk_index?: number;
+  page?: number | null;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   streaming?: boolean;
+  sources?: MessageSource[] | null;
+  stage?: string; // etapa atual durante o streaming (busca/leitura/geração)
 }
 
 interface ApiErrorPayload {
@@ -367,7 +380,12 @@ export async function sendMessage(
   sessionId: string,
   content: string,
   onToken: (chunk: string) => void,
-  signal?: AbortSignal,
+  opts: {
+    webSearch?: boolean;
+    onSources?: (sources: MessageSource[]) => void;
+    onStage?: (stage: string, count?: number) => void;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<void> {
   const token = readToken();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -376,8 +394,8 @@ export async function sendMessage(
   const res = await fetch(`${API_URL}/sessions/${sessionId}/messages`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ content }),
-    signal,
+    body: JSON.stringify({ content, web_search: opts.webSearch ?? false }),
+    signal: opts.signal,
   });
 
   if (!res.ok || !res.body) throw new ApiError(res.status, "Falha ao enviar mensagem");
@@ -400,8 +418,16 @@ export async function sendMessage(
       const payload = line.slice(5).trim();
       if (payload === "[DONE]") return;
       try {
-        const parsed = JSON.parse(payload) as { t?: string; error?: string };
+        const parsed = JSON.parse(payload) as {
+          t?: string;
+          error?: string;
+          sources?: MessageSource[];
+          stage?: string;
+          count?: number;
+        };
         if (parsed.error) throw new Error(parsed.error);
+        if (parsed.stage && opts.onStage) opts.onStage(parsed.stage, parsed.count);
+        if (parsed.sources && opts.onSources) opts.onSources(parsed.sources);
         if (parsed.t) onToken(parsed.t);
       } catch {
         // chunk não-JSON ignorado (ex: eventos de controle)

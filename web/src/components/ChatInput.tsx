@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { PaperclipIcon, SendIcon } from "./icons";
+import { GlobeIcon, PaperclipIcon, SendIcon } from "./icons";
 
 interface Props {
   onSend: (text: string) => void;
@@ -9,6 +9,8 @@ interface Props {
   modelName?: string;
   onOpenAttach?: () => void;
   attachedCount?: number;
+  webSearch?: boolean;
+  onToggleWebSearch?: () => void;
 }
 
 export function ChatInput({
@@ -19,6 +21,8 @@ export function ChatInput({
   modelName,
   onOpenAttach,
   attachedCount = 0,
+  webSearch = false,
+  onToggleWebSearch,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -63,6 +67,17 @@ export function ChatInput({
           ) : null}
         </div>
         <div className="chat-input-right">
+          {onToggleWebSearch ? (
+            <button
+              className={`icon-btn ghost${webSearch ? " is-active" : ""}`}
+              onClick={onToggleWebSearch}
+              aria-pressed={webSearch}
+              aria-label="Buscar na web"
+              title={webSearch ? "Busca na web: ligada" : "Buscar na web"}
+            >
+              <GlobeIcon />
+            </button>
+          ) : null}
           {onOpenAttach ? (
             <button
               className="icon-btn ghost"

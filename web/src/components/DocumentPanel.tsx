@@ -31,6 +31,9 @@ interface Props {
   attachedIds: string[];
   onAttachedChange: (ids: string[]) => void;
   onClose: () => void;
+  /** Foco vindo de uma citação de RAG: abre o documento na página/trecho citado. */
+  focus?: { documentId: string; chunkIndex: number; snippet?: string; page?: number | null } | null;
+  onFocusHandled?: () => void;
 }
 
 interface Upload {
@@ -122,13 +125,22 @@ function PanelDocCard({
   );
 }
 
-export function DocumentPanel({ sessionId, attachedIds, onAttachedChange, onClose }: Props) {
+export function DocumentPanel({
+  sessionId,
+  attachedIds,
+  onAttachedChange,
+  onClose,
+  focus,
+  onFocusHandled,
+}: Props) {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [viewing, setViewing] = useState<DocumentItem | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [upload, setUpload] = useState<Upload | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [focusSnippet, setFocusSnippet] = useState<string | null>(null);
+  const [focusPage, setFocusPage] = useState<number | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -142,6 +154,19 @@ export function DocumentPanel({ sessionId, attachedIds, onAttachedChange, onClos
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Foco por citação de RAG: assim que o documento estiver na lista, abre o
+  // visualizador e destaca o trecho recuperado.
+  useEffect(() => {
+    if (!focus) return;
+    const doc = docs.find((d) => d.id === focus.documentId);
+    if (!doc) return; // aguarda o refresh popular a lista
+    setViewing(doc);
+    setFocusPage(focus.page ?? null);
+    // Com página conhecida, o PDF abre direto nela — dispensa o balão do trecho.
+    setFocusSnippet(focus.page != null ? null : focus.snippet ?? null);
+    onFocusHandled?.();
+  }, [focus, docs, onFocusHandled]);
 
   // Fecha o painel com Escape (ou volta da visualização para a lista).
   useEffect(() => {
@@ -253,7 +278,15 @@ export function DocumentPanel({ sessionId, attachedIds, onAttachedChange, onClos
     <aside className="doc-panel" aria-label="Documentos da conversa">
       <header className="doc-panel-head">
         {viewing ? (
-          <button className="doc-panel-back" onClick={() => setViewing(null)} title="Voltar à lista">
+          <button
+            className="doc-panel-back"
+            onClick={() => {
+              setViewing(null);
+              setFocusSnippet(null);
+              setFocusPage(null);
+            }}
+            title="Voltar à lista"
+          >
             ← Voltar
           </button>
         ) : (
@@ -275,10 +308,21 @@ export function DocumentPanel({ sessionId, attachedIds, onAttachedChange, onClos
               {viewing.page_count ? ` · ${viewing.page_count} págs` : ""}
             </span>
           </div>
+          {focusSnippet ? (
+            <div className="doc-viewer-chunk">
+              <span className="doc-viewer-chunk-label">Trecho citado</span>
+              <p>{focusSnippet}</p>
+            </div>
+          ) : null}
           {pdfLoading ? (
             <div className="doc-viewer-loading">Carregando PDF…</div>
           ) : pdfUrl ? (
-            <iframe className="doc-viewer-frame" src={pdfUrl} title={viewing.filename} />
+            <iframe
+              key={focusPage ?? "full"}
+              className="doc-viewer-frame"
+              src={focusPage ? `${pdfUrl}#page=${focusPage}` : pdfUrl}
+              title={viewing.filename}
+            />
           ) : (
             <div className="doc-viewer-loading">Não foi possível exibir o PDF.</div>
           )}
@@ -338,7 +382,11 @@ export function DocumentPanel({ sessionId, attachedIds, onAttachedChange, onClos
                   doc={doc}
                   attached={attachedIds.includes(doc.id)}
                   disabled={!sessionId}
-                  onView={() => setViewing(doc)}
+                  onView={() => {
+                    setViewing(doc);
+                    setFocusPage(null);
+                    setFocusSnippet(null);
+                  }}
                   onToggleAttach={() => void toggleAttach(doc)}
                   onDelete={() => void removeDoc(doc)}
                 />

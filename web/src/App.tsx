@@ -38,6 +38,11 @@ export default function App() {
   // Documentos escopados à conversa atual (Biblioteca / clipe do chat).
   const [attachedIds, setAttachedIds] = useState<string[]>([]);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [webSearch, setWebSearch] = useState(false);
+  // Fonte de RAG clicada numa citação: abre o painel no documento/chunk.
+  const [sourceFocus, setSourceFocus] = useState<
+    { documentId: string; chunkIndex: number; snippet?: string; page?: number | null } | null
+  >(null);
 
   useEffect(() => {
     if (!sessionId) {
@@ -236,7 +241,19 @@ export default function App() {
                 {hasConversation ? (
                   <>
                     <MemoryBadge sessionId={sessionId} refreshKey={messages.length} />
-                    <MessageList messages={messages} />
+                    <MessageList
+                      messages={messages}
+                      onOpenSource={(s) => {
+                        if (s.kind !== "rag" || !s.document_id) return;
+                        setSourceFocus({
+                          documentId: s.document_id,
+                          chunkIndex: s.chunk_index ?? 0,
+                          snippet: s.snippet,
+                          page: s.page,
+                        });
+                        setPanelOpen(true);
+                      }}
+                    />
                   </>
                 ) : (
                   <div className="welcome">
@@ -254,12 +271,14 @@ export default function App() {
                   onChange={setDraft}
                   onSend={(text) => {
                     setDraft("");
-                    send(text);
+                    send(text, { webSearch });
                   }}
                   disabled={isStreaming || !sessionId}
                   modelName={modelName}
                   onOpenAttach={() => setPanelOpen((o) => !o)}
                   attachedCount={attachedIds.length}
+                  webSearch={webSearch}
+                  onToggleWebSearch={() => setWebSearch((v) => !v)}
                 />
                 <div className="composer-footer">
                   <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>
@@ -277,6 +296,8 @@ export default function App() {
               attachedIds={attachedIds}
               onAttachedChange={setAttachedIds}
               onClose={() => setPanelOpen(false)}
+              focus={sourceFocus}
+              onFocusHandled={() => setSourceFocus(null)}
             />
           ) : null}
         </div>

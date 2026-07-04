@@ -98,7 +98,11 @@ export async function loadHistory(sessionId: string): Promise<void> {
   }
 }
 
-export async function send(sessionId: string, text: string): Promise<void> {
+export async function send(
+  sessionId: string,
+  text: string,
+  opts: { webSearch?: boolean } = {},
+): Promise<void> {
   const current = getState(sessionId);
   if (!text.trim() || current.isStreaming) return;
 
@@ -129,9 +133,24 @@ export async function send(sessionId: string, text: string): Promise<void> {
   };
   patch(sessionId, { raf: requestAnimationFrame(flush) });
 
+  let pendingSources: ChatMessage["sources"] = null;
   try {
     await sendMessage(sessionId, text.trim(), (chunk) => {
       patch(sessionId, { buffer: getState(sessionId).buffer + chunk });
+    }, {
+      webSearch: opts.webSearch,
+      onSources: (s) => {
+        pendingSources = s;
+      },
+      onStage: (stage, count) => {
+        const label = count != null ? `${stage}:${count}` : stage;
+        const st = getState(sessionId);
+        patch(sessionId, {
+          messages: st.messages.map((m) =>
+            m.id === assistantId ? { ...m, stage: label } : m,
+          ),
+        });
+      },
     });
   } catch {
     const s = getState(sessionId);
@@ -151,7 +170,9 @@ export async function send(sessionId: string, text: string): Promise<void> {
       isStreaming: false,
       assistantId: null,
       messages: s.messages.map((m) =>
-        m.id === assistantId ? { ...m, content: s.buffer, streaming: false } : m,
+        m.id === assistantId
+          ? { ...m, content: s.buffer, streaming: false, sources: pendingSources, stage: undefined }
+          : m,
       ),
     });
   }
