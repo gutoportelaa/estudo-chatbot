@@ -33,7 +33,6 @@ Browser (React/Vite)               FastAPI (api)                 Google Gemini A
   informado; a sessão B não tem acesso a ele).
 - **Persistência:** o histórico sobrevive a reinícios do servidor (fica em `api/data/sessions.sqlite`).
 
----
 
 ## Pré-requisito: chave da API Gemini
 
