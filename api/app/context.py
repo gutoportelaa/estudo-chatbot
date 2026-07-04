@@ -348,12 +348,17 @@ def _assemble_metered(
     recent: list[Message],
     model: str,
     rag_hits: list[dict[str, str]] | None = None,
+    tool_output: str | None = None,
 ) -> tuple[list[dict[str, str]], TokenBreakdown]:
     """Monta o prompt e devolve também a quebra de tokens por bloco (issue #37)."""
     recent_dicts = [{"role": m.role, "content": m.content} for m in recent]
     budget = ContextBudget(model=model)
     messages = budget.assemble(
-        system=system_prompt, summary=summary, rag_hits=rag_hits, recent=recent_dicts
+        system=system_prompt,
+        summary=summary,
+        rag_hits=rag_hits,
+        recent=recent_dicts,
+        tool_output=tool_output,
     )
     return messages, budget.breakdown or TokenBreakdown()
 
@@ -409,6 +414,7 @@ async def assemble_messages(
     summarizer_model: str = "",
     model: str = "",
     rag_hits: list[dict[str, str]] | None = None,
+    tool_output: str | None = None,
 ) -> tuple[list[dict[str, str]], TokenBreakdown]:
     """Carrega o histórico, aplica a estratégia e devolve ``(mensagens, quebra)``.
 
@@ -417,6 +423,10 @@ async def assemble_messages(
 
     ``rag_hits`` (issue #34) são os trechos recuperados do material; entram no
     bloco de RAG do prompt, com cota própria de tokens.
+
+    ``tool_output`` é o resumo já orçado (``ToolResult.summary_for_context``) de
+    uma ferramenta determinística do turno (ex.: diagrama gerado) — entra como
+    último bloco do prompt, com sua própria cota (``ContextBudget.assemble``).
 
     O ``model`` é repassado ao ``ContextBudget`` para o log de tokens correto; a
     ``TokenBreakdown`` retornada alimenta a observabilidade do turno (issue #37).
@@ -457,6 +467,7 @@ async def assemble_messages(
                 recent=plan.to_summarize + plan.recent,
                 model=model,
                 rag_hits=rag_hits,
+                tool_output=tool_output,
             )
 
         if new_summary:
@@ -502,6 +513,7 @@ async def assemble_messages(
         recent=plan.recent,
         model=model,
         rag_hits=rag_hits,
+        tool_output=tool_output,
     )
 
 

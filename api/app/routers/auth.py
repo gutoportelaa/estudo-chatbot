@@ -36,6 +36,11 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class UpdateProfileRequest(BaseModel):
+    username: str | None = None
+    password: str | None = None
+
+
 @router.post("/signup", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def signup(
     body: SignupRequest,
@@ -71,4 +76,36 @@ async def signin(
 async def profile(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> User:
+    return current_user
+
+
+@router.patch("/profile", response_model=UserResponse)
+async def update_profile(
+    body: UpdateProfileRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> User:
+    """Edição mínima de perfil (EPIC E): trocar username e/ou senha."""
+    if body.username is None and body.password is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Informe username e/ou password")
+
+    if body.username is not None:
+        username = body.username.strip()
+        if not username:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Username não pode ser vazio")
+        if username != current_user.username:
+            existing = await db.scalar(select(User).where(User.username == username))
+            if existing:
+                raise HTTPException(status.HTTP_409_CONFLICT, "Usuário já existe")
+            current_user.username = username
+
+    if body.password is not None:
+        if len(body.password) < 8:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "Senha deve ter ao menos 8 caracteres"
+            )
+        current_user.password_hash = hash_password(body.password)
+
+    await db.commit()
+    await db.refresh(current_user)
     return current_user

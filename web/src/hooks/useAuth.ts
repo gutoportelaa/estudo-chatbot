@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { getAuthToken, getProfile, logout as clearAuth, signin, signup, type AuthUser } from "../api/client";
+import {
+  getAuthToken,
+  getProfile,
+  logout as clearAuth,
+  signin,
+  signup,
+  updateProfile as updateProfileApi,
+  type AuthUser,
+} from "../api/client";
 
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -73,7 +81,22 @@ export function useAuth() {
     setError(null);
   }, []);
 
-  return { user, isLoading, error, isAuthenticated: Boolean(user), login, register, logout };
+  const updateProfile = useCallback(async (body: { username?: string; password?: string }) => {
+    const profile = await updateProfileApi(body);
+    setUser(profile);
+    return profile;
+  }, []);
+
+  return {
+    user,
+    isLoading,
+    error,
+    isAuthenticated: Boolean(user),
+    login,
+    register,
+    logout,
+    updateProfile,
+  };
 }
 
 export type AuthState = ReturnType<typeof useAuth>;

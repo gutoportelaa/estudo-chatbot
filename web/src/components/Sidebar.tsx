@@ -1,5 +1,5 @@
 import type { SessionSummary } from "../api/client";
-import { BookIcon, ChartIcon, ChatIcon, EllipsisIcon, PlusIcon, TrashIcon, SettingsIcon } from "./icons";
+import { BookIcon, ChartIcon, ChatIcon, EllipsisIcon, HomeIcon, PlusIcon, TrashIcon, SettingsIcon } from "./icons";
 import { useState } from "react";
 
 interface Props {
@@ -13,8 +13,10 @@ interface Props {
   onOpenPreferences: () => void;
   onOpenUsage: () => void;
   onOpenBiblioteca: () => void;
+  onOpenDashboard: () => void;
   bibliotecaActive: boolean;
   consumoActive: boolean;
+  dashboardActive: boolean;
 }
 
 export function Sidebar({
@@ -28,14 +30,25 @@ export function Sidebar({
   onOpenPreferences,
   onOpenUsage,
   onOpenBiblioteca,
+  onOpenDashboard,
   bibliotecaActive,
   consumoActive,
+  dashboardActive,
 }: Props) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   return (
     <aside className={`sidebar${isOpen ? "" : " is-collapsed"}`} aria-label="Sessões">
       <div className="sidebar-inner">
+        <button
+          className={`sidebar-nav-btn${dashboardActive ? " is-active" : ""}`}
+          onClick={onOpenDashboard}
+          title="Dashboard"
+        >
+          <HomeIcon />
+          <span>Dashboard</span>
+        </button>
+
         <button className="sidebar-new-btn" onClick={onNew} title="Nova conversa">
           <PlusIcon />
           <span>Nova conversa</span>

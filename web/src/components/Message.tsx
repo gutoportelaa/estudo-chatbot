@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../hooks/useChat";
+import { MermaidDiagram } from "./MermaidDiagram";
 
 export function Message({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
@@ -28,7 +29,12 @@ export function Message({ message }: { message: ChatMessage }) {
           <span className="orb orb-sm" />
         </span>
       )}
-      <div className="message-bubble">{body}</div>
+      <div className="message-bubble">
+        {body}
+        {!isUser && message.diagram ? (
+          <MermaidDiagram mermaid={message.diagram.mermaid} type={message.diagram.type} />
+        ) : null}
+      </div>
     </div>
   );
 }

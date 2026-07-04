@@ -14,11 +14,18 @@ export interface SessionSummary {
   updated_at?: string;
 }
 
+export interface DiagramPayload {
+  type: "flowchart" | "mindmap" | "sequence";
+  mermaid: string;
+  cached: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   streaming?: boolean;
+  diagram?: DiagramPayload;
 }
 
 interface ApiErrorPayload {
@@ -106,6 +113,10 @@ export async function signin(username: string, password: string): Promise<string
 
 export async function getProfile(): Promise<AuthUser> {
   return req<AuthUser>("/auth/profile");
+}
+
+export async function updateProfile(body: { username?: string; password?: string }): Promise<AuthUser> {
+  return req<AuthUser>("/auth/profile", { method: "PATCH", body: JSON.stringify(body) });
 }
 
 // ---------- Consumo (métricas de tokens/custo) ----------
@@ -351,6 +362,36 @@ export async function fetchThumbnail(id: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
+// ---------- Resumos (individual e consolidado) ----------
+
+export type SummaryKind = "single" | "consolidated";
+
+export interface SummaryItem {
+  id: string;
+  kind: SummaryKind;
+  llm_model: string;
+  content: string;
+  document_ids: string[];
+  created_at: string;
+}
+
+export async function createSummary(documentIds: string[]): Promise<SummaryItem> {
+  return req<SummaryItem>("/summaries", {
+    method: "POST",
+    body: JSON.stringify({ document_ids: documentIds }),
+  });
+}
+
+export async function listSummaries(kind?: SummaryKind): Promise<SummaryItem[]> {
+  const query = kind ? `?kind=${kind}` : "";
+  const data = await req<unknown>(`/summaries${query}`);
+  return Array.isArray(data) ? (data as SummaryItem[]) : [];
+}
+
+export async function getSummary(id: string): Promise<SummaryItem> {
+  return req<SummaryItem>(`/summaries/${id}`);
+}
+
 // ---------- Messages ----------
 
 export async function fetchMessages(sessionId: string): Promise<ChatMessage[]> {
@@ -367,6 +408,7 @@ export async function sendMessage(
   sessionId: string,
   content: string,
   onToken: (chunk: string) => void,
+  onDiagram?: (diagram: DiagramPayload) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const token = readToken();
@@ -400,8 +442,13 @@ export async function sendMessage(
       const payload = line.slice(5).trim();
       if (payload === "[DONE]") return;
       try {
-        const parsed = JSON.parse(payload) as { t?: string; error?: string };
+        const parsed = JSON.parse(payload) as {
+          t?: string;
+          error?: string;
+          diagram?: DiagramPayload;
+        };
         if (parsed.error) throw new Error(parsed.error);
+        if (parsed.diagram) onDiagram?.(parsed.diagram);
         if (parsed.t) onToken(parsed.t);
       } catch {
         // chunk não-JSON ignorado (ex: eventos de controle)

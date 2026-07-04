@@ -11,7 +11,7 @@
  * ao voltar, o slice ainda está lá, continuando ou já concluído.
  */
 
-import { fetchMessages, sendMessage, type ChatMessage } from "../api/client";
+import { fetchMessages, sendMessage, type ChatMessage, type DiagramPayload } from "../api/client";
 
 export type { ChatMessage };
 
@@ -21,6 +21,7 @@ interface SessionState {
   error: string | null;
   loaded: boolean; // histórico já buscado do backend?
   buffer: string; // acumula tokens sem re-render por token
+  diagram: DiagramPayload | null; // diagrama gerado no turno em curso, se houver
   assistantId: string | null;
   raf: number | null;
 }
@@ -32,6 +33,7 @@ function emptyState(): SessionState {
     error: null,
     loaded: false,
     buffer: "",
+    diagram: null,
     assistantId: null,
     raf: null,
   };
@@ -109,6 +111,7 @@ export async function send(sessionId: string, text: string): Promise<void> {
     error: null,
     isStreaming: true,
     buffer: "",
+    diagram: null,
     assistantId,
     messages: [
       ...current.messages,
@@ -122,7 +125,7 @@ export async function send(sessionId: string, text: string): Promise<void> {
     const s = getState(sessionId);
     patch(sessionId, {
       messages: s.messages.map((m) =>
-        m.id === s.assistantId ? { ...m, content: s.buffer } : m,
+        m.id === s.assistantId ? { ...m, content: s.buffer, diagram: s.diagram ?? undefined } : m,
       ),
       raf: requestAnimationFrame(flush),
     });
@@ -130,9 +133,16 @@ export async function send(sessionId: string, text: string): Promise<void> {
   patch(sessionId, { raf: requestAnimationFrame(flush) });
 
   try {
-    await sendMessage(sessionId, text.trim(), (chunk) => {
-      patch(sessionId, { buffer: getState(sessionId).buffer + chunk });
-    });
+    await sendMessage(
+      sessionId,
+      text.trim(),
+      (chunk) => {
+        patch(sessionId, { buffer: getState(sessionId).buffer + chunk });
+      },
+      (diagram) => {
+        patch(sessionId, { diagram });
+      },
+    );
   } catch {
     const s = getState(sessionId);
     patch(sessionId, {
@@ -151,7 +161,9 @@ export async function send(sessionId: string, text: string): Promise<void> {
       isStreaming: false,
       assistantId: null,
       messages: s.messages.map((m) =>
-        m.id === assistantId ? { ...m, content: s.buffer, streaming: false } : m,
+        m.id === assistantId
+          ? { ...m, content: s.buffer, streaming: false, diagram: s.diagram ?? undefined }
+          : m,
       ),
     });
   }

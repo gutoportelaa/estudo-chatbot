@@ -13,6 +13,8 @@ import { DocumentCard } from "./DocumentCard";
 interface Props {
   /** Inicia uma nova conversa restrita aos documentos selecionados. */
   onStartConversation: (documentIds: string[]) => void | Promise<void>;
+  /** Gera um resumo (individual com 1 doc, consolidado com 2+) dos documentos selecionados. */
+  onGenerateSummary: (documentIds: string[]) => void | Promise<void>;
 }
 
 const SORT_LABELS: Record<DocumentSort, string> = {
@@ -22,7 +24,7 @@ const SORT_LABELS: Record<DocumentSort, string> = {
   size: "Tamanho",
 };
 
-export function BibliotecaView({ onStartConversation }: Props) {
+export function BibliotecaView({ onStartConversation, onGenerateSummary }: Props) {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [sort, setSort] = useState<DocumentSort>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -166,6 +168,12 @@ export function BibliotecaView({ onStartConversation }: Props) {
           <div>
             <button className="btn-ghost" onClick={() => setSelected(new Set())}>
               Limpar
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={() => void onGenerateSummary([...selected])}
+            >
+              {selected.size > 1 ? "Gerar resumo consolidado" : "Gerar resumo"}
             </button>
             <button
               className="btn-primary"

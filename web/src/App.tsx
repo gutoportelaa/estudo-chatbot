@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { fetchModelName, getSessionDocuments } from "./api/client";
+import { createSummary, fetchModelName, getSessionDocuments, type SummaryItem } from "./api/client";
 import { ChatInput } from "./components/ChatInput";
 import { DocumentPanel } from "./components/DocumentPanel";
 import { Greeting } from "./components/Greeting";
@@ -15,12 +15,20 @@ import { PreferencesModal } from "./components/PreferencesModal";
 import { ConsumoView } from "./components/ConsumoView";
 import { MemoryBadge } from "./components/MemoryBadge";
 import { BibliotecaView } from "./components/BibliotecaView";
+import { SummaryPanel } from "./components/SummaryPanel";
+import { DashboardView } from "./components/DashboardView";
+import { SummaryListView } from "./components/SummaryListView";
+import { ProfileModal } from "./components/ProfileModal";
+
+type View = "dashboard" | "chat" | "biblioteca" | "consumo" | "resumos";
 
 export default function App() {
   const { theme, toggleTheme, colorStart, colorEnd, setColorStart, setColorEnd } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
-  const [view, setView] = useState<"chat" | "biblioteca" | "consumo">("chat");
+  const [profileOpen, setProfileOpen] = useState(false);
+  // Dashboard é a tela inicial pós-login (EPIC E): fluxo navegável upload → listar → resumir → ver resumo.
+  const [view, setView] = useState<View>("dashboard");
   const [modelName, setModelName] = useState("");
 
   useEffect(() => {
@@ -38,6 +46,24 @@ export default function App() {
   // Documentos escopados à conversa atual (Biblioteca / clipe do chat).
   const [attachedIds, setAttachedIds] = useState<string[]>([]);
   const [panelOpen, setPanelOpen] = useState(false);
+
+  // Resumo (individual/consolidado) gerado a partir da seleção na Biblioteca.
+  const [summaryPanel, setSummaryPanel] = useState<{
+    summary: SummaryItem | null;
+    loading: boolean;
+    error: string | null;
+  } | null>(null);
+
+  const handleGenerateSummary = async (documentIds: string[]) => {
+    setSummaryPanel({ summary: null, loading: true, error: null });
+    try {
+      const summary = await createSummary(documentIds);
+      setSummaryPanel({ summary, loading: false, error: null });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Não foi possível gerar o resumo.";
+      setSummaryPanel({ summary: null, loading: false, error: message });
+    }
+  };
 
   useEffect(() => {
     if (!sessionId) {
@@ -194,8 +220,10 @@ export default function App() {
         onOpenPreferences={() => setPrefsOpen(true)}
         onOpenUsage={() => setView("consumo")}
         onOpenBiblioteca={() => setView("biblioteca")}
+        onOpenDashboard={() => setView("dashboard")}
         bibliotecaActive={view === "biblioteca"}
         consumoActive={view === "consumo"}
+        dashboardActive={view === "dashboard"}
       />
 
       <PreferencesModal
@@ -207,6 +235,13 @@ export default function App() {
         setColorEnd={setColorEnd}
       />
 
+      <ProfileModal
+        isOpen={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        username={auth.user.username}
+        onSave={auth.updateProfile}
+      />
+
       <div className="window">
         <Header
           theme={theme}
@@ -216,9 +251,29 @@ export default function App() {
           onLogout={auth.logout}
         />
 
-        <div className={`window-body${panelOpen && view === "chat" ? " has-panel" : ""}`}>
+        <div
+          className={`window-body${
+            (panelOpen && view === "chat") || (summaryPanel && view === "biblioteca")
+              ? " has-panel"
+              : ""
+          }`}
+        >
           <div className="chat-column">
-            {view === "consumo" ? (
+            {view === "dashboard" ? (
+              <main className="content is-biblioteca">
+                <DashboardView
+                  username={auth.user.username}
+                  onGoUpload={() => setView("biblioteca")}
+                  onGoBiblioteca={() => setView("biblioteca")}
+                  onOpenSummaries={() => setView("resumos")}
+                  onOpenProfile={() => setProfileOpen(true)}
+                />
+              </main>
+            ) : view === "resumos" ? (
+              <main className="content is-biblioteca">
+                <SummaryListView />
+              </main>
+            ) : view === "consumo" ? (
               <main className="content is-biblioteca">
                 <ConsumoView />
               </main>
@@ -229,6 +284,7 @@ export default function App() {
                     await sessions.createNewSession(documentIds);
                     setView("chat");
                   }}
+                  onGenerateSummary={(documentIds) => void handleGenerateSummary(documentIds)}
                 />
               </main>
             ) : (
@@ -277,6 +333,13 @@ export default function App() {
               attachedIds={attachedIds}
               onAttachedChange={setAttachedIds}
               onClose={() => setPanelOpen(false)}
+            />
+          ) : summaryPanel && view === "biblioteca" ? (
+            <SummaryPanel
+              summary={summaryPanel.summary}
+              loading={summaryPanel.loading}
+              error={summaryPanel.error}
+              onClose={() => setSummaryPanel(null)}
             />
           ) : null}
         </div>

@@ -639,6 +639,35 @@
   font-weight: 600;
 }
 
+/* Diagrama Mermaid (fluxograma/mindmap/sequência gerado no chat) */
+.diagram-mermaid {
+  margin: 0.6em 0;
+  padding: 12px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.diagram-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.diagram-loading {
+  margin: 0.6em 0;
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+.diagram-fallback {
+  margin: 0.6em 0;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+
 /* Linha horizontal */
 .md hr {
   border: none;
@@ -1202,6 +1231,80 @@
   pointer-events: none;
 }
 
+.dashboard {
+  padding: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.dashboard-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dashboard-card:hover {
+  border-color: var(--theme-gradient-start);
+}
+
+.dashboard-card-title {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.dashboard-card-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.summary-list-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.summary-list-header {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.summary-list-content {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--border);
+}
+
 .biblioteca-header {
   display: flex;
   align-items: flex-end;
@@ -1255,6 +1358,18 @@
   background: transparent;
   color: var(--text-muted);
   font-size: 13px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+
+.btn-secondary {
+  padding: 8px 14px;
+  border: 1px solid var(--theme-gradient-start);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--theme-gradient-start);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   margin-right: 8px;
 }

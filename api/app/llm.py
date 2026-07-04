@@ -103,12 +103,40 @@ async def _retrieve_rag_hits(db, *, user_id, query, settings, document_ids=None)
         return None
 
 
-async def stream_openai_compatible(
-    *,
-    session_id: str,
-    content: str,
-) -> AsyncGenerator[str, None]:
-    settings = get_settings()
+async def _maybe_generate_diagram(content, *, client, model, settings, rag_hits):
+    """Gera um diagrama Mermaid quando o turno pede um (fluxograma/mindmap/sequência).
+
+    Mesma resiliência do RAG: detecta a intenção por heurística de palavras-chave
+    (``detect_diagram_intent``), sem o LLM decidir nada; se a geração falhar, o
+    chat segue normalmente sem diagrama. Quando há hits de RAG, o conteúdo do
+    diagrama vem deles (ex.: mindmap a partir do material selecionado); senão,
+    usa a própria mensagem do usuário.
+    """
+    from .tools.diagram import detect_diagram_intent, generate_diagram
+
+    tipo = detect_diagram_intent(content)
+    if tipo is None:
+        return None
+    try:
+        conteudo = "\n\n".join(h["content"] for h in rag_hits) if rag_hits else content
+        return await generate_diagram(
+            tipo,
+            conteudo,
+            client=client,
+            model=model,
+            max_tokens=settings.tool_output_max_tokens,
+        )
+    except Exception:  # pragma: no cover - resiliência: diagrama nunca quebra o chat
+        logger.exception("Falha ao gerar diagrama tipo=%s", tipo)
+        return None
+
+
+def resolve_client(settings) -> tuple[AsyncOpenAI, str, str]:
+    """Resolve (client, model, provider) a partir do provedor configurado.
+
+    Reaproveitado pelo chat, pela geração de diagrama e pela geração de resumos —
+    mesma lógica de resolução de base_url/model/api_key em um único lugar.
+    """
     provider = settings.llm_provider.lower()
 
     if provider == "ollama":
@@ -122,6 +150,16 @@ async def stream_openai_compatible(
         api_key = getattr(settings, cfg["api_key_field"], "") or "no-key"
 
     client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+    return client, model, provider
+
+
+async def stream_openai_compatible(
+    *,
+    session_id: str,
+    content: str,
+) -> AsyncGenerator[str, None]:
+    settings = get_settings()
+    client, model, provider = resolve_client(settings)
 
     # Persiste a mensagem do usuário e monta o contexto com gestão de histórico
     # (janela deslizante + resumo). A sumarização usa o mesmo provedor/cliente.
@@ -161,6 +199,11 @@ async def stream_openai_compatible(
             document_ids=scoped_docs or None,
         )
 
+        diagram = await _maybe_generate_diagram(
+            content, client=client, model=model, settings=settings, rag_hits=rag_hits
+        )
+        tool_output = diagram[1].summary_for_context if diagram else None
+
         messages, breakdown = await context.assemble_messages(
             db,
             session_id=session_id,
@@ -170,11 +213,22 @@ async def stream_openai_compatible(
             summarizer_model=summarizer_model,
             model=model,
             rag_hits=rag_hits,
+            tool_output=tool_output,
         )
 
     full_text = ""
     error_text: str | None = None
     started = time.monotonic()
+
+    if diagram:
+        artifact, _ = diagram
+        yield (
+            "data: "
+            + json.dumps(
+                {"diagram": {"type": artifact.tipo, "mermaid": artifact.mermaid, "cached": artifact.cached}}
+            )
+            + "\n\n"
+        )
 
     try:
         async for chunk in await client.chat.completions.create(
