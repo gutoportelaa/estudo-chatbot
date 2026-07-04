@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getSummaries, type SummaryEvent } from "../api/client";
+import { ContextInspector } from "./ContextInspector";
 
 interface Props {
   sessionId: string | null;
@@ -14,6 +15,7 @@ interface Props {
  */
 export function MemoryBadge({ sessionId, refreshKey }: Props) {
   const [events, setEvents] = useState<SummaryEvent[]>([]);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!sessionId) {
@@ -42,9 +44,19 @@ export function MemoryBadge({ sessionId, refreshKey }: Props) {
     events.length === 1 ? "1 compactação de memória" : `${events.length} compactações de memória`;
 
   return (
-    <div className="memory-badge" title={tooltip}>
-      <span aria-hidden>🧠</span>
-      <span>{label}</span>
-    </div>
+    <>
+      <button
+        type="button"
+        className="memory-badge is-clickable"
+        title={`${tooltip}\n\n(clique para ver a linha do tempo)`}
+        onClick={() => setOpen(true)}
+      >
+        <span aria-hidden>🧠</span>
+        <span>{label}</span>
+      </button>
+      {open && sessionId ? (
+        <ContextInspector sessionId={sessionId} onClose={() => setOpen(false)} />
+      ) : null}
+    </>
   );
 }
