@@ -32,7 +32,8 @@ S3, SSM (params standard), IAM, VPC, IGW e Security Groups são **grátis** no u
    - `HTTPS 443` ← `0.0.0.0/0`
    - `SSH 22` ← **My IP** (apenas seu IP de administração)
 3. **Systems Manager → Parameter Store**: criar **SecureString** para cada segredo:
-   `/thinkai/GROQ_API_KEY`, `/thinkai/SECRET_KEY`, `/thinkai/DB_PASSWORD`, etc.
+   `/thinkai/GROQ_API_KEY`, `/thinkai/SECRET_KEY`, `/thinkai/DB_PASSWORD`,
+   `/thinkai/TAVILY_API_KEY` (busca web #35), etc.
    (A EC2 lê na inicialização; nada de segredo no `.env` em produção.)
 
 ### C1 — Bucket de PDFs (S3) + permissão (IAM)
@@ -110,6 +111,9 @@ Alternativa sem domínio: HTTP na 80 para a demo (a banca aceita, mas 443 pontua
   `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `RAG_TOP_K`, `RAG_MAX_TOKENS`,
   `TOOL_OUTPUT_MAX_TOKENS`, além de `STORAGE_BACKEND=s3` + `S3_BUCKET`. Ver
   `.env.example`.
+- **Busca web (#35):** `TAVILY_API_KEY` (SecureString no SSM) + `WEB_SEARCH_PROVIDER=auto`
+  (Tavily quando há chave; DuckDuckGo como fallback). Sem chave, a busca ainda
+  funciona via DuckDuckGo, com qualidade menor.
 
 ---
 
