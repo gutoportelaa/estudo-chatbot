@@ -146,6 +146,20 @@ def get_embedder(settings: Settings) -> Embedder:
 # ---------------------------------------------------------------------------
 
 
+def chunk_pages(text: str, *, size: int, overlap: int) -> list[tuple[str, int | None]]:
+    """Chunking ciente de página: usa o separador ``\\f`` (inserido na extração)
+    para atribuir a página de origem a cada chunk. Documentos antigos (sem ``\\f``)
+    caem no chunking simples com página ``None``.
+    """
+    if "\f" not in text:
+        return [(p, None) for p in chunk_text(text, size=size, overlap=overlap)]
+    out: list[tuple[str, int | None]] = []
+    for page_no, page in enumerate(text.split("\f"), start=1):
+        for piece in chunk_text(page, size=size, overlap=overlap):
+            out.append((piece, page_no))
+    return out
+
+
 async def index_document(
     db: AsyncSession,
     embedder: Embedder,
@@ -160,19 +174,21 @@ async def index_document(
     Reindexa de forma idempotente — remove os chunks anteriores do documento
     antes de inserir os novos. Retorna a quantidade de chunks indexados.
     """
-    pieces = chunk_text(text, size=settings.rag_chunk_size, overlap=settings.rag_chunk_overlap)
+    paged = chunk_pages(text, size=settings.rag_chunk_size, overlap=settings.rag_chunk_overlap)
     await db.execute(delete(Chunk).where(Chunk.document_id == document_id))
-    if not pieces:
+    if not paged:
         await db.commit()
         return 0
 
+    pieces = [p for p, _ in paged]
     vectors = await embedder.embed(pieces)
-    for i, (piece, vec) in enumerate(zip(pieces, vectors)):
+    for i, ((piece, page), vec) in enumerate(zip(paged, vectors)):
         db.add(
             Chunk(
                 document_id=document_id,
                 user_id=user_id,
                 chunk_index=i,
+                page=page,
                 text=piece,
                 embedding=vec,
                 embedding_provider=embedder.provider,

@@ -17,6 +17,7 @@ from .database import AsyncSessionLocal
 from .models import Message
 from .models import Session as SessionRow
 from .models import SessionDocument, TurnMetric
+from .tools.websearch import needs_web_search, web_search as web_search_tool
 from .observability import TurnMetrics, estimate_cost, log_turn
 
 logger = logging.getLogger("thinkai.llm")
@@ -68,15 +69,21 @@ async def _retrieve_rag_hits(db, *, user_id, query, settings, document_ids=None)
     """
     from sqlalchemy import select
 
-    from .models import Chunk
+    from .models import Chunk, Document
     from .tools.rag import build_rag_hits, get_embedder, retrieve
 
-    if not user_id:
-        return None
+    if not user_id or not document_ids:
+        # Isolamento: sem documentos escopados à conversa, não há RAG. Nunca
+        # recupera sobre toda a biblioteca do usuário (vazaria entre conversas).
+        return None, []
     try:
-        has_chunks = await db.scalar(select(Chunk.id).where(Chunk.user_id == user_id).limit(1))
+        has_chunks = await db.scalar(
+            select(Chunk.id)
+            .where(Chunk.user_id == user_id, Chunk.document_id.in_(document_ids))
+            .limit(1)
+        )
         if not has_chunks:
-            return None
+            return None, []
 
         chunks = await retrieve(
             db,
@@ -97,16 +104,37 @@ async def _retrieve_rag_hits(db, *, user_id, query, settings, document_ids=None)
                 break
             capped.append(h)
             used += cost
-        return capped or None
+
+        # Fontes estruturadas (#34) para citação linkável — alinhadas aos hits
+        # que efetivamente entraram (mesma ordem). Abrem o documento no chunk.
+        used_chunks = chunks[: len(capped)]
+        names = {}
+        if used_chunks:
+            doc_ids = {c.document_id for c in used_chunks}
+            rows = await db.execute(select(Document.id, Document.filename).where(Document.id.in_(doc_ids)))
+            names = dict(rows.all())
+        rag_sources = [
+            {
+                "kind": "rag",
+                "title": names.get(c.document_id, "documento"),
+                "document_id": c.document_id,
+                "chunk_index": c.chunk_index,
+                "page": c.page,
+                "snippet": " ".join(c.text.split())[:300],
+            }
+            for c in used_chunks
+        ]
+        return (capped or None), rag_sources
     except Exception:  # pragma: no cover - resiliência: RAG nunca quebra o chat
         logger.exception("Falha ao recuperar RAG para o usuário %s", user_id)
-        return None
+        return None, []
 
 
 async def stream_openai_compatible(
     *,
     session_id: str,
     content: str,
+    web_search: bool = False,
 ) -> AsyncGenerator[str, None]:
     settings = get_settings()
     provider = settings.llm_provider.lower()
@@ -143,7 +171,9 @@ async def stream_openai_compatible(
         db.add(Message(session_id=session_id, role="user", content=content, created_at=now))
         await db.commit()
 
-        # Documentos selecionados para esta conversa (Biblioteca) restringem o RAG.
+        # Documentos escopados a ESTA conversa (Biblioteca / clipe). O RAG só
+        # recupera dentro deles — isolamento por conversa. Sem documentos
+        # anexados, não há RAG (evita vazar material de outras conversas).
         scoped_docs = list(
             (
                 await db.execute(
@@ -153,13 +183,35 @@ async def stream_openai_compatible(
                 )
             ).scalars()
         )
-        rag_hits = await _retrieve_rag_hits(
-            db,
-            user_id=user_id,
-            query=content,
-            settings=settings,
-            document_ids=scoped_docs or None,
-        )
+        if scoped_docs:
+            rag_hits, rag_sources = await _retrieve_rag_hits(
+                db,
+                user_id=user_id,
+                query=content,
+                settings=settings,
+                document_ids=scoped_docs,
+            )
+        else:
+            rag_hits, rag_sources = None, []
+
+        # Busca web (#35): acionada pelo toggle ou pela heurística. O resumo
+        # rankeado entra na cota de ferramentas; as fontes são anexadas à
+        # resposta de forma determinística (não dependem de o modelo citar).
+        tool_output: str | None = None
+        web_answer: str | None = None
+        sources: list[dict] = list(rag_sources)
+        if web_search or needs_web_search(content, settings):
+            yield f"data: {json.dumps({'stage': 'searching'})}\n\n"
+            result = await web_search_tool(content, settings)
+            if result:
+                tool_output = result.tool.summary_for_context
+                web_answer = result.answer
+                sources = [
+                    {"kind": "web", **s.as_dict()} for s in result.sources
+                ] + sources
+                yield f"data: {json.dumps({'stage': 'reading', 'count': len(result.sources)})}\n\n"
+            else:
+                yield f"data: {json.dumps({'stage': 'search_empty'})}\n\n"
 
         messages, breakdown = await context.assemble_messages(
             db,
@@ -170,7 +222,11 @@ async def stream_openai_compatible(
             summarizer_model=summarizer_model,
             model=model,
             rag_hits=rag_hits,
+            tool_output=tool_output,
         )
+
+    if tool_output:
+        yield f"data: {json.dumps({'stage': 'generating'})}\n\n"
 
     full_text = ""
     error_text: str | None = None
@@ -188,6 +244,15 @@ async def stream_openai_compatible(
         error_text = str(exc)[:300]
         yield f"data: {json.dumps({'error': error_text})}\n\n"
     else:
+        # Fallback: se o modelo (pequeno) redigiu muito pouco mas a busca web
+        # trouxe uma síntese, entrega a síntese para o usuário não ficar sem
+        # resposta útil. As fontes continuam anexadas.
+        if web_answer and len(full_text.strip()) < 40:
+            fallback = ("\n\n" if full_text.strip() else "") + web_answer
+            full_text += fallback
+            yield _sse(fallback)
+        if sources:
+            yield f"data: {json.dumps({'sources': sources})}\n\n"
         yield "data: [DONE]\n\n"
 
     # Observabilidade do turno (issue #37): quebra de tokens por bloco + saída,
@@ -224,6 +289,7 @@ async def stream_openai_compatible(
                     session_id=session_id,
                     role="assistant",
                     content=full_text,
+                    sources=sources or None,
                     created_at=datetime.now(timezone.utc),
                 )
             )

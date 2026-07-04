@@ -133,7 +133,9 @@ def extract_pdf(
 
     with fitz.open(stream=data, filetype="pdf") as doc:
         page_count = doc.page_count
-        native_text = "\n".join(page.get_text() for page in doc).strip()
+        # Preserva a fronteira de páginas com form-feed (\f) para o chunking
+        # atribuir a página de origem a cada chunk (citações de RAG por página).
+        native_text = "\f".join(page.get_text() for page in doc).strip()
 
         needs_ocr = ocr is not None and len(native_text) < ocr_min_chars_per_page * max(1, page_count)
         if not needs_ocr:
@@ -151,7 +153,7 @@ def extract_pdf(
         for page in doc:
             pix = page.get_pixmap(dpi=ocr_dpi)
             ocr_parts.append(ocr.image_to_text(pix.tobytes("png")))
-        ocr_text = "\n".join(ocr_parts).strip()
+        ocr_text = "\f".join(ocr_parts).strip()
 
     if len(ocr_text) > len(native_text):
         return ExtractionResult(

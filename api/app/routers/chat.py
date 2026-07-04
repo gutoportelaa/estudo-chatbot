@@ -20,6 +20,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 class SendMessageBody(BaseModel):
     content: str
+    web_search: bool = False  # toggle 🔎 do chat (#35)
 
 
 class RenameSessionBody(BaseModel):
@@ -109,7 +110,10 @@ async def get_messages(
     result = await db.execute(
         select(Message).where(Message.session_id == session_id).order_by(Message.created_at)
     )
-    return [{"id": m.id, "role": m.role, "content": m.content} for m in result.scalars().all()]
+    return [
+        {"id": m.id, "role": m.role, "content": m.content, "sources": m.sources}
+        for m in result.scalars().all()
+    ]
 
 
 @router.get("/{session_id}/summaries")
@@ -283,7 +287,9 @@ async def send_message(
 
     settings = get_settings()
     if settings.llm_provider.lower() in ("groq", "openrouter", "ollama"):
-        generator = stream_openai_compatible(session_id=session_id, content=body.content)
+        generator = stream_openai_compatible(
+            session_id=session_id, content=body.content, web_search=body.web_search
+        )
     else:
         generator = _stream_adk(user_id=current_user.id, session_id=session_id, content=body.content)
 

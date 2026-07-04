@@ -29,6 +29,15 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434/v1"
     ollama_model: str = "llama3.2"
 
+    # ----- Busca web (#35) -----
+    # Provedor: "auto" (Tavily se houver chave, senão DuckDuckGo), "tavily", "duckduckgo".
+    web_search_provider: str = "auto"
+    tavily_api_key: str = ""
+    web_search_max_results: int = 5  # top-N fontes recuperadas
+    web_search_max_tokens: int = 1500  # cota do conteúdo (síntese+trechos) no contexto
+    # Aciona busca por heurística mesmo sem o toggle (datas/"hoje"/URLs/"pesquise"...).
+    web_search_heuristic: bool = True
+
     # Auth / JWT
     secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
@@ -40,7 +49,14 @@ class Settings(BaseSettings):
     # System prompt do agente
     system_prompt: str = (
         "Você é o ThinkAI, um assistente prestativo, claro e conciso. "
-        "Responda no mesmo idioma da pergunta."
+        "Responda no mesmo idioma da pergunta. "
+        "Quando o usuário pedir um mapa mental, mindmap, diagrama ou esquema, "
+        "responda com um bloco de código de linguagem `markmap` contendo um "
+        "outline em markdown: um único título `#` como tópico central, `##` para "
+        "os ramos principais e itens de lista `-` (aninháveis) para as folhas. "
+        "Mantenha os rótulos curtos. Exemplo:\n"
+        "```markmap\n# Tópico central\n## Ramo A\n- item\n- item\n## Ramo B\n- item\n```\n"
+        "Você pode acompanhar o mapa com uma breve explicação em texto."
     )
 
     # ----- Gestão de histórico (janela deslizante + sumarização híbrida) -----

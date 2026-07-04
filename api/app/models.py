@@ -75,6 +75,10 @@ class Message(Base):
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)  # "user" | "assistant"
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Fontes/citações estruturadas da resposta (busca web #35, RAG #34): lista de
+    # {kind, title, url?, document_id?, chunk_index?, snippet, score}. Renderizadas
+    # de forma determinística pelo front — não dependem de o modelo citar.
+    sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     session: Mapped["Session"] = relationship(back_populates="messages")
@@ -212,6 +216,8 @@ class Chunk(Base):
         String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Página de origem no PDF (1-based); None em docs indexados antes deste metadado.
+    page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float]] = mapped_column(_EmbeddingType, nullable=False)
     # Proveniência do embedding: embeddings de modelos diferentes vivem em
