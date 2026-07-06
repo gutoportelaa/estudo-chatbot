@@ -433,6 +433,11 @@ export async function getMindmap(documentId: string): Promise<SummaryItem | null
   return req<SummaryItem | null>(`/documents/${documentId}/mindmap`);
 }
 
+export async function listSummaries(): Promise<SummaryItem[]> {
+  const data = await req<unknown>("/summaries");
+  return Array.isArray(data) ? (data as SummaryItem[]) : [];
+}
+
 export async function generateConsolidatedSummary(documentIds: string[]): Promise<SummaryItem> {
   return req<SummaryItem>("/summaries/consolidated", {
     method: "POST",
