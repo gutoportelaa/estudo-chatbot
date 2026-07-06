@@ -54,6 +54,28 @@ def active_model() -> str:
     return settings.gemini_model
 
 
+def build_chat_client(settings) -> tuple[AsyncOpenAI, str]:
+    """Constrói um client OpenAI-compatível para o provedor de chat ativo e o
+    modelo a usar. Reutilizado por ferramentas que precisam do LLM fora do fluxo
+    de streaming (ex.: geração de resumos #44/#45). Cobre groq/openrouter/ollama
+    e gemini (via endpoint OpenAI-compat)."""
+    provider = settings.llm_provider.lower()
+    if provider == "gemini":
+        base_url = settings.gemini_openai_base_url
+        model = settings.llm_model or settings.gemini_model
+        api_key = settings.gemini_api_key or "no-key"
+    elif provider == "ollama":
+        base_url = settings.ollama_base_url
+        model = settings.llm_model or settings.ollama_model
+        api_key = "ollama"
+    else:
+        cfg = _PROVIDER_DEFAULTS.get(provider, _PROVIDER_DEFAULTS["groq"])
+        base_url = cfg["base_url"]
+        model = settings.llm_model or cfg["model"]
+        api_key = getattr(settings, cfg["api_key_field"], "") or "no-key"
+    return AsyncOpenAI(base_url=base_url, api_key=api_key), model
+
+
 def _sse(payload: str) -> str:
     """Emite um evento SSE com payload JSON: data: {"t": "..."}\n\n"""
     return f"data: {json.dumps({'t': payload})}\n\n"

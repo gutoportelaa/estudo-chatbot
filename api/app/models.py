@@ -25,6 +25,11 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    # Perfil do usuário (B1/#39) — todos opcionais.
+    full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_key: Mapped[str | None] = mapped_column(String(256), nullable=True)  # chave no storage
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     sessions: Mapped[list["Session"]] = relationship(

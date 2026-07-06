@@ -1742,6 +1742,72 @@ a.msg-source-link:hover {
   color: var(--text);
 }
 
+/* ---------- Resumo do documento (#44) ---------- */
+.doc-summary {
+  margin: 10px 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 10px 12px;
+}
+
+.doc-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-summary-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+
+.doc-summary-toggle,
+.doc-summary-gen {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.doc-summary-gen {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.doc-summary-gen:disabled {
+  opacity: 0.5;
+  cursor: default;
+  color: var(--text-faint);
+}
+
+.doc-summary-error {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: #e5484d;
+}
+
+.doc-summary-empty {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.doc-summary-body {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
 /* ---------- Mapa mental Markmap no chat (#36) ---------- */
 .mindmap-view {
   height: 360px;
@@ -2458,3 +2524,27 @@ a.msg-source-link:hover {
   color: var(--text);
   word-break: break-word;
 }
+
+/* ---------- Perfil (B2/#40) ---------- */
+.profile-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.profile-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--border-strong);
+}
+.profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.profile-avatar-initials { font-size: 22px; font-weight: 600; }
+.profile-hint { font-size: 11px; color: var(--text-faint); margin: 4px 0 0; }
