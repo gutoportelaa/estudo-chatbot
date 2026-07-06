@@ -115,6 +115,18 @@ Alternativa sem domínio: HTTP na 80 para a demo (a banca aceita, mas 443 pontua
   (Tavily quando há chave; DuckDuckGo como fallback). Sem chave, a busca ainda
   funciona via DuckDuckGo, com qualidade menor.
 
+## Pegadinha do CD: usuário SSH vs. diretório do clone
+
+O `cd.yml` conecta como o usuário definido em `EC2_USER` (hoje `ubuntu`) e roda
+`cd ~/estudo-chatbot`. Se o clone inicial for feito por outra via (ex.: AWS
+Systems Manager Session Manager, que loga como `ssm-user` por padrão), o repo
+acaba em `/home/ssm-user/estudo-chatbot` e o CD sempre cai num diretório vazio —
+`git pull`/`docker compose` falham em silêncio, mas o job ainda reporta sucesso
+porque o `curl` final do health check só está medindo os containers antigos que
+seguem no ar. **Garanta que o clone de produção esteja em `/home/<EC2_USER>/estudo-chatbot`.**
+Como o nome do projeto Compose deriva do nome da pasta, mover o clone entre
+caminhos com o mesmo nome de diretório não perde o volume nomeado do Postgres.
+
 ---
 
 ## Mapa serviço → issue
