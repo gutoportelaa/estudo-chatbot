@@ -4,7 +4,17 @@ const TOKEN_STORAGE_KEY = "thinkai.jwt";
 export interface AuthUser {
   id: string;
   username: string;
+  full_name?: string | null;
+  email?: string | null;
+  description?: string | null;
+  has_avatar?: boolean;
   created_at: string;
+}
+
+export interface ProfileUpdate {
+  full_name?: string | null;
+  email?: string | null;
+  description?: string | null;
 }
 
 export interface SessionSummary {
@@ -119,6 +129,26 @@ export async function signin(username: string, password: string): Promise<string
 
 export async function getProfile(): Promise<AuthUser> {
   return req<AuthUser>("/auth/profile");
+}
+
+export async function updateProfile(patch: ProfileUpdate): Promise<AuthUser> {
+  return req<AuthUser>("/auth/profile", { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export async function uploadAvatar(file: File): Promise<AuthUser> {
+  const form = new FormData();
+  form.append("file", file);
+  return req<AuthUser>("/auth/avatar", { method: "POST", body: form });
+}
+
+/** Baixa o avatar autenticado como object URL (o <img> não envia header). */
+export async function fetchAvatarUrl(): Promise<string> {
+  const token = readToken();
+  const res = await fetch(`${API_URL}/auth/avatar`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new ApiError(res.status, `Erro ${res.status}`);
+  return URL.createObjectURL(await res.blob());
 }
 
 // ---------- Consumo (métricas de tokens/custo) ----------

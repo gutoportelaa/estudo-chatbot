@@ -12,6 +12,7 @@ import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
 import { useTheme } from "./hooks/useTheme";
 import { PreferencesModal } from "./components/PreferencesModal";
+import { ProfileModal } from "./components/ProfileModal";
 import { ConsumoView } from "./components/ConsumoView";
 import { MemoryBadge } from "./components/MemoryBadge";
 import { BibliotecaView } from "./components/BibliotecaView";
@@ -20,6 +21,7 @@ export default function App() {
   const { theme, toggleTheme, colorStart, colorEnd, setColorStart, setColorEnd } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [view, setView] = useState<"chat" | "biblioteca" | "consumo">("chat");
   const [modelName, setModelName] = useState("");
 
@@ -197,6 +199,7 @@ export default function App() {
           await sessions.removeSession(id);
         }}
         onOpenPreferences={() => setPrefsOpen(true)}
+        onOpenProfile={() => setProfileOpen(true)}
         onOpenUsage={() => setView("consumo")}
         onOpenBiblioteca={() => setView("biblioteca")}
         bibliotecaActive={view === "biblioteca"}
@@ -210,6 +213,13 @@ export default function App() {
         colorEnd={colorEnd}
         setColorStart={setColorStart}
         setColorEnd={setColorEnd}
+      />
+
+      <ProfileModal
+        isOpen={profileOpen}
+        user={auth.user}
+        onClose={() => setProfileOpen(false)}
+        onUpdated={(u) => auth.setUser(u)}
       />
 
       <div className="window">

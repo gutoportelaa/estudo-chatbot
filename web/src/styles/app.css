@@ -2524,3 +2524,27 @@ a.msg-source-link:hover {
   color: var(--text);
   word-break: break-word;
 }
+
+/* ---------- Perfil (B2/#40) ---------- */
+.profile-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.profile-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--border-strong);
+}
+.profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.profile-avatar-initials { font-size: 22px; font-weight: 600; }
+.profile-hint { font-size: 11px; color: var(--text-faint); margin: 4px 0 0; }
