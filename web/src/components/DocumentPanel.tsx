@@ -20,49 +20,9 @@ import {
   listDocuments,
   type DocumentItem,
 } from "../api/client";
-import { useUploadQueue, type UploadItem, type UploadStatus } from "../hooks/useUploadQueue";
+import { useUploadQueue } from "../hooks/useUploadQueue";
+import { UploadQueueList } from "./UploadQueueList";
 import { PaperclipIcon, TrashIcon } from "./icons";
-
-const STATUS_LABEL: Record<UploadStatus, string> = {
-  queued: "Na fila",
-  uploading: "Enviando",
-  processing: "Processando",
-  done: "Concluído",
-  failed: "Falhou",
-  canceled: "Cancelado",
-};
-
-/** Ação contextual de um item da fila: cancelar, retry ou dispensar. */
-function UploadItemAction({
-  item,
-  queue,
-}: {
-  item: UploadItem;
-  queue: ReturnType<typeof useUploadQueue>;
-}) {
-  if (item.status === "queued" || item.status === "uploading") {
-    return (
-      <button className="upload-cancel" onClick={() => queue.cancel(item.id)}>
-        Cancelar
-      </button>
-    );
-  }
-  if (item.status === "failed") {
-    return (
-      <button className="upload-cancel" onClick={() => queue.retry(item.id)}>
-        Tentar de novo
-      </button>
-    );
-  }
-  if (item.status === "processing") {
-    return <span className="upload-item-hint">…</span>;
-  }
-  return (
-    <button className="upload-cancel" onClick={() => queue.dismiss(item.id)} aria-label="Remover da lista">
-      ×
-    </button>
-  );
-}
 
 interface Props {
   sessionId: string | null;
@@ -357,36 +317,7 @@ export function DocumentPanel({
             />
           </div>
 
-          {queue.items.length > 0 ? (
-            <ul className="upload-queue">
-              {queue.items.map((it) => (
-                <li key={it.id} className={`upload-item is-${it.status}`}>
-                  <div className="upload-item-row">
-                    <span className="upload-item-name" title={it.name}>
-                      {it.name}
-                    </span>
-                    <UploadItemAction item={it} queue={queue} />
-                  </div>
-                  <div className="upload-item-foot">
-                    <span className="upload-item-status">{STATUS_LABEL[it.status]}</span>
-                    <div className="upload-bar">
-                      <div
-                        className={`upload-bar-fill${
-                          it.status === "processing" ? " is-indeterminate" : ""
-                        }`}
-                        style={{ width: `${it.status === "queued" ? 0 : it.percent}%` }}
-                      />
-                    </div>
-                  </div>
-                  {it.error && it.status === "failed" ? (
-                    <span className="upload-item-error" title={it.error}>
-                      {it.error}
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          <UploadQueueList queue={queue} />
 
           {notice ? <p className="doc-panel-notice">{notice}</p> : null}
 

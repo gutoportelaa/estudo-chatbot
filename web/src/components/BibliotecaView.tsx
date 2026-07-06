@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteDocument,
-  extractDocument,
-  indexDocument,
   listDocuments,
-  uploadDocument,
   type DocumentItem,
   type DocumentSort,
 } from "../api/client";
+import { useUploadQueue } from "../hooks/useUploadQueue";
 import { DocumentCard } from "./DocumentCard";
+import { UploadQueueList } from "./UploadQueueList";
 
 interface Props {
   /** Inicia uma nova conversa restrita aos documentos selecionados. */
@@ -27,7 +26,6 @@ export function BibliotecaView({ onStartConversation }: Props) {
   const [sort, setSort] = useState<DocumentSort>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -44,26 +42,13 @@ export function BibliotecaView({ onStartConversation }: Props) {
     void refresh();
   }, [refresh]);
 
+  // Fila de upload (concorrência 1): atualiza a grade ao concluir cada doc.
+  const queue = useUploadQueue(async () => {
+    await refresh();
+  });
   const handleFiles = useCallback(
-    async (files: FileList | File[]) => {
-      const pdfs = Array.from(files).filter((f) => f.name.toLowerCase().endsWith(".pdf"));
-      if (pdfs.length === 0) return;
-      for (const file of pdfs) {
-        setBusy(`Enviando ${file.name}…`);
-        try {
-          const doc = await uploadDocument(file);
-          // Processa para RAG: extrai o texto e indexa (best-effort).
-          setBusy(`Processando ${file.name}…`);
-          await extractDocument(doc.id).catch(() => null);
-          await indexDocument(doc.id).catch(() => null);
-        } catch {
-          setBusy(`Falha ao enviar ${file.name}`);
-        }
-      }
-      setBusy(null);
-      await refresh();
-    },
-    [refresh],
+    (files: FileList | File[]) => queue.enqueue(Array.from(files)),
+    [queue],
   );
 
   const toggle = (id: string) =>
@@ -137,7 +122,7 @@ export function BibliotecaView({ onStartConversation }: Props) {
         </div>
       </header>
 
-      {busy ? <p className="biblioteca-busy">{busy}</p> : null}
+      <UploadQueueList queue={queue} />
 
       {docs.length === 0 && !loading ? (
         <div className="biblioteca-dropzone">
