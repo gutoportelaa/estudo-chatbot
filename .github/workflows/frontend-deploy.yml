@@ -1,0 +1,65 @@
+name: Deploy Frontend (S3 + CloudFront)
+
+# Publica o frontend estático (build do Vite) num bucket S3 servido por CloudFront.
+# O site fica no ar 24/7, independente da EC2 (que sobe só para a API nas demos).
+#
+# Pré-requisitos (console AWS — ver docs/aws-runbook.md):
+#   - Bucket S3 do site (Block Public Access ON; acesso só via CloudFront OAC).
+#   - Distribuição CloudFront apontando para o bucket (default root: index.html).
+# Secrets/vars do repositório:
+#   - vars.VITE_API_URL              -> URL pública da API (ex.: http://<elastic-ip>:8000)
+#   - secrets.AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY  (usuário IAM com acesso ao bucket + CloudFront)
+#   - secrets.WEB_S3_BUCKET          -> nome do bucket do site
+#   - secrets.CLOUDFRONT_DISTRIBUTION_ID
+#   - vars.AWS_REGION (opcional; default us-east-1)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/frontend-deploy.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build e publicar no S3/CloudFront
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        working-directory: web
+        run: bun run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Sync para o S3
+        working-directory: web
+        run: |
+          # Assets com hash no nome → cache longo; index.html sempre revalidado.
+          aws s3 sync dist "s3://${{ secrets.WEB_S3_BUCKET }}" --delete \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "index.html"
+          aws s3 cp dist/index.html "s3://${{ secrets.WEB_S3_BUCKET }}/index.html" \
+            --cache-control "no-cache"
+
+      - name: Invalidar CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
