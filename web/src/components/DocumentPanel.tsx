@@ -22,6 +22,7 @@ import {
 } from "../api/client";
 import { useUploadQueue } from "../hooks/useUploadQueue";
 import { UploadQueueList } from "./UploadQueueList";
+import { DocumentSummary } from "./DocumentSummary";
 import { PaperclipIcon, TrashIcon } from "./icons";
 
 interface Props {
@@ -285,6 +286,7 @@ export function DocumentPanel({
               <p>{focusSnippet}</p>
             </div>
           ) : null}
+          <DocumentSummary doc={viewing} />
           {pdfLoading ? (
             <div className="doc-viewer-loading">Carregando PDF…</div>
           ) : pdfUrl ? (

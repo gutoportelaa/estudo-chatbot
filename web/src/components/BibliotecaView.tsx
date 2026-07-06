@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteDocument,
+  generateConsolidatedSummary,
   listDocuments,
   type DocumentItem,
   type DocumentSort,
+  type SummaryItem,
 } from "../api/client";
 import { useUploadQueue } from "../hooks/useUploadQueue";
 import { DocumentCard } from "./DocumentCard";
@@ -27,6 +29,9 @@ export function BibliotecaView({ onStartConversation }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [consolidated, setConsolidated] = useState<SummaryItem | null>(null);
+  const [consolidating, setConsolidating] = useState(false);
+  const [consolidateError, setConsolidateError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -50,6 +55,18 @@ export function BibliotecaView({ onStartConversation }: Props) {
     (files: FileList | File[]) => queue.enqueue(Array.from(files)),
     [queue],
   );
+
+  const generateConsolidated = useCallback(async () => {
+    setConsolidating(true);
+    setConsolidateError(null);
+    try {
+      setConsolidated(await generateConsolidatedSummary([...selected]));
+    } catch (e) {
+      setConsolidateError(e instanceof Error ? e.message : "Falha ao gerar o resumo consolidado");
+    } finally {
+      setConsolidating(false);
+    }
+  }, [selected]);
 
   const toggle = (id: string) =>
     setSelected((cur) => {
@@ -152,6 +169,15 @@ export function BibliotecaView({ onStartConversation }: Props) {
             <button className="btn-ghost" onClick={() => setSelected(new Set())}>
               Limpar
             </button>
+            {selected.size >= 2 ? (
+              <button
+                className="btn-ghost"
+                onClick={() => void generateConsolidated()}
+                disabled={consolidating}
+              >
+                {consolidating ? "Resumindo…" : "Resumo consolidado"}
+              </button>
+            ) : null}
             <button
               className="btn-primary"
               onClick={() => void onStartConversation([...selected])}
@@ -161,6 +187,26 @@ export function BibliotecaView({ onStartConversation }: Props) {
           </div>
         </div>
       ) : null}
+
+      {consolidated ? (
+        <div className="modal-backdrop" onClick={() => setConsolidated(null)}>
+          <div className="modal-content modal-content--wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Resumo consolidado</h2>
+              <button className="icon-btn" onClick={() => setConsolidated(null)} aria-label="Fechar">
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="prefs-desc">
+                Síntese de {consolidated.document_ids.length} documentos ({consolidated.llm_model}).
+              </p>
+              <div className="doc-summary-body md">{consolidated.content}</div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {consolidateError ? <p className="biblioteca-busy">{consolidateError}</p> : null}
     </section>
   );
 }

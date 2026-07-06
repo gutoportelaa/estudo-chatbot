@@ -364,6 +364,32 @@ export async function fetchThumbnail(id: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
+// ---------- Resumos (#44 single / #45 consolidated) ----------
+
+export interface SummaryItem {
+  id: string;
+  kind: "single" | "consolidated";
+  llm_model: string;
+  content: string;
+  document_ids: string[];
+  created_at: string;
+}
+
+export async function generateSingleSummary(documentId: string): Promise<SummaryItem> {
+  return req<SummaryItem>(`/documents/${documentId}/summary`, { method: "POST" });
+}
+
+export async function getSingleSummary(documentId: string): Promise<SummaryItem | null> {
+  return req<SummaryItem | null>(`/documents/${documentId}/summary`);
+}
+
+export async function generateConsolidatedSummary(documentIds: string[]): Promise<SummaryItem> {
+  return req<SummaryItem>("/summaries/consolidated", {
+    method: "POST",
+    body: JSON.stringify({ document_ids: documentIds }),
+  });
+}
+
 // ---------- Messages ----------
 
 export async function fetchMessages(sessionId: string): Promise<ChatMessage[]> {
