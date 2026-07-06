@@ -12,6 +12,7 @@ interface Props {
   onDelete: (id: string) => void;
   onOpenPreferences: () => void;
   onOpenProfile: () => void;
+  onOpenContext: () => void;
   onOpenUsage: () => void;
   onOpenBiblioteca: () => void;
   bibliotecaActive: boolean;
@@ -28,6 +29,7 @@ export function Sidebar({
   onDelete,
   onOpenPreferences,
   onOpenProfile,
+  onOpenContext,
   onOpenUsage,
   onOpenBiblioteca,
   bibliotecaActive,
@@ -128,6 +130,10 @@ export function Sidebar({
           >
             <ChartIcon />
             <span>Consumo</span>
+          </button>
+          <button className="sidebar-prefs-btn" onClick={onOpenContext} title="Memória e janela de contexto">
+            <ChatIcon />
+            <span>Contexto</span>
           </button>
           <button className="sidebar-prefs-btn" onClick={onOpenProfile} title="Perfil do usuário">
             <UserIcon />

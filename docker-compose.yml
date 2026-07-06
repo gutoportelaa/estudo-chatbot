@@ -48,7 +48,7 @@ services:
       HISTORY_SUMMARIZE_AFTER_MESSAGES: ${HISTORY_SUMMARIZE_AFTER_MESSAGES:-6}
       HISTORY_SUMMARY_MAX_TOKENS: ${HISTORY_SUMMARY_MAX_TOKENS:-600}
       CORS_ORIGINS: "*"
-      SYSTEM_PROMPT: ${SYSTEM_PROMPT:-Você é o ThinkAI, um assistente prestativo, claro e conciso. Atue como um assistente de estudos sobre a área de interesse do usuário, recomendando questões, referências e respondendo a dúvidas. Responda no mesmo idioma da pergunta.}
+      SYSTEM_PROMPT: ${SYSTEM_PROMPT:-Você é o ThinkAI, um assistente prestativo, claro e conciso. Atue como um assistente de estudos sobre a área de interesse do usuário, recomendando questões, referências e respondendo a dúvidas. Responda no mesmo idioma da pergunta. Quando o usuário pedir um mapa mental, mindmap, diagrama ou esquema, responda com um bloco de código de linguagem `markmap` contendo um outline em markdown (um título `#` central, `##` para ramos e itens `-` para folhas), com rótulos curtos.}
     ports:
       - "8000:8000"
     restart: unless-stopped

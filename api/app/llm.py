@@ -328,6 +328,10 @@ async def stream_openai_compatible(
                 status="error" if error_text else "ok",
                 error=error_text,
                 rag_tokens=breakdown.rag,
+                tokens_system=breakdown.system,
+                tokens_summary=breakdown.summary,
+                tokens_recent=breakdown.recent,
+                tokens_tool=breakdown.tool,
             )
         )
         await db.commit()

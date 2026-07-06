@@ -86,6 +86,42 @@ async def summarize_text(client: AsyncOpenAI, model: str, text: str) -> str:
     return await _complete(client, model, _REDUCE_PROMPT.format(content=joined), max_tokens=1000)
 
 
+_MINDMAP_PROMPT = (
+    "Gere um **mapa mental** do documento a seguir como um OUTLINE em Markdown, "
+    "e responda APENAS com o outline (sem texto extra, sem cercas de código). "
+    "Formato: um único título de nível 1 (# Tópico central), tópicos principais "
+    "em nível 2 (## Ramo) e folhas como itens de lista (- item), aninháveis com "
+    "indentação. Rótulos curtos, em português. Documento:\n\n{content}"
+)
+
+
+def _clean_outline(text: str) -> str:
+    """Remove cercas de código que o modelo às vezes adiciona ao outline."""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        lines = [ln for ln in t.splitlines() if not ln.strip().startswith("```")]
+        t = "\n".join(lines).strip()
+    return t
+
+
+async def generate_mindmap(client: AsyncOpenAI, model: str, text: str) -> str:
+    """Gera o outline (Markdown) de um mapa mental do documento (#36).
+
+    Determinístico do ponto de vista do produto: é uma chamada dedicada, não
+    depende de o modelo de chat espontaneamente emitir o bloco. Para textos
+    longos, resume antes (map-reduce) para caber e destacar a estrutura.
+    """
+    source = text
+    if len(text) > _MAP_CHUNK_CHARS:
+        source = await summarize_text(client, model, text)
+    outline = await _complete(client, model, _MINDMAP_PROMPT.format(content=source), max_tokens=900)
+    outline = _clean_outline(outline)
+    # Garante um título de nível 1 para o Markmap ancorar a raiz.
+    if not any(ln.lstrip().startswith("# ") for ln in outline.splitlines()):
+        outline = f"# Mapa mental\n{outline}"
+    return outline
+
+
 async def consolidate_summaries(
     client: AsyncOpenAI, model: str, per_doc: list[tuple[str, str]]
 ) -> str:

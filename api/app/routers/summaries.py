@@ -15,7 +15,7 @@ from ..database import get_db
 from ..llm import build_chat_client
 from ..models import Document, Summary, SummaryDocument, User
 from ..storage import get_storage
-from ..tools.summarize import consolidate_summaries, summarize_text
+from ..tools.summarize import consolidate_summaries, generate_mindmap, summarize_text
 
 logger = logging.getLogger("thinkai.summaries")
 
@@ -118,6 +118,50 @@ async def get_single_summary(
     if not row:
         return None
     return _to_dict(row, [document_id])
+
+
+@router.post("/documents/{document_id}/mindmap")
+async def create_mindmap(
+    document_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Gera (e persiste) o mapa mental de um documento como outline Markdown (#36)."""
+    settings = get_settings()
+    (doc,) = await _owned_extracted_docs(db, current_user.id, [document_id])
+    text = await _load_text(doc)
+    client, model = build_chat_client(settings)
+    try:
+        content = await generate_mindmap(client, model, text)
+    except Exception as exc:
+        logger.exception("Falha ao gerar mapa mental de %s", document_id)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Falha ao gerar o mapa mental: {exc}")
+    if not content:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Documento sem texto para o mapa")
+    summary = await _persist_summary(db, current_user.id, "mindmap", model, content, [doc.id])
+    return _to_dict(summary, [doc.id])
+
+
+@router.get("/documents/{document_id}/mindmap")
+async def get_mindmap(
+    document_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict | None:
+    """Retorna o mapa mental mais recente do documento (ou 204 se não houver)."""
+    doc = await db.get(Document, document_id)
+    if not doc or doc.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
+    row = (
+        await db.execute(
+            select(Summary)
+            .join(SummaryDocument, SummaryDocument.summary_id == Summary.id)
+            .where(SummaryDocument.document_id == document_id, Summary.kind == "mindmap")
+            .order_by(Summary.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return _to_dict(row, [document_id]) if row else None
 
 
 class ConsolidatedBody(BaseModel):

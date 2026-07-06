@@ -13,6 +13,7 @@ import { useSessions } from "./hooks/useSessions";
 import { useTheme } from "./hooks/useTheme";
 import { PreferencesModal } from "./components/PreferencesModal";
 import { ProfileModal } from "./components/ProfileModal";
+import { ContextInspector } from "./components/ContextInspector";
 import { ConsumoView } from "./components/ConsumoView";
 import { MemoryBadge } from "./components/MemoryBadge";
 import { BibliotecaView } from "./components/BibliotecaView";
@@ -22,6 +23,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
   const [view, setView] = useState<"chat" | "biblioteca" | "consumo">("chat");
   const [modelName, setModelName] = useState("");
 
@@ -200,6 +202,7 @@ export default function App() {
         }}
         onOpenPreferences={() => setPrefsOpen(true)}
         onOpenProfile={() => setProfileOpen(true)}
+        onOpenContext={() => setContextOpen(true)}
         onOpenUsage={() => setView("consumo")}
         onOpenBiblioteca={() => setView("biblioteca")}
         bibliotecaActive={view === "biblioteca"}
@@ -221,6 +224,10 @@ export default function App() {
         onClose={() => setProfileOpen(false)}
         onUpdated={(u) => auth.setUser(u)}
       />
+
+      {contextOpen && sessionId ? (
+        <ContextInspector sessionId={sessionId} onClose={() => setContextOpen(false)} />
+      ) : null}
 
       <div className="window">
         <Header
