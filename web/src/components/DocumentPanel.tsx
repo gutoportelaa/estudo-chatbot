@@ -15,16 +15,54 @@ import {
   attachDocuments,
   deleteDocument,
   detachDocument,
-  extractDocument,
   fetchPdfUrl,
   fetchThumbnail,
-  indexDocument,
   listDocuments,
-  uploadDocumentWithProgress,
   type DocumentItem,
-  type UploadHandle,
 } from "../api/client";
+import { useUploadQueue, type UploadItem, type UploadStatus } from "../hooks/useUploadQueue";
 import { PaperclipIcon, TrashIcon } from "./icons";
+
+const STATUS_LABEL: Record<UploadStatus, string> = {
+  queued: "Na fila",
+  uploading: "Enviando",
+  processing: "Processando",
+  done: "Concluído",
+  failed: "Falhou",
+  canceled: "Cancelado",
+};
+
+/** Ação contextual de um item da fila: cancelar, retry ou dispensar. */
+function UploadItemAction({
+  item,
+  queue,
+}: {
+  item: UploadItem;
+  queue: ReturnType<typeof useUploadQueue>;
+}) {
+  if (item.status === "queued" || item.status === "uploading") {
+    return (
+      <button className="upload-cancel" onClick={() => queue.cancel(item.id)}>
+        Cancelar
+      </button>
+    );
+  }
+  if (item.status === "failed") {
+    return (
+      <button className="upload-cancel" onClick={() => queue.retry(item.id)}>
+        Tentar de novo
+      </button>
+    );
+  }
+  if (item.status === "processing") {
+    return <span className="upload-item-hint">…</span>;
+  }
+  return (
+    <button className="upload-cancel" onClick={() => queue.dismiss(item.id)} aria-label="Remover da lista">
+      ×
+    </button>
+  );
+}
 
 interface Props {
   sessionId: string | null;
@@ -34,13 +72,6 @@ interface Props {
   /** Foco vindo de uma citação de RAG: abre o documento na página/trecho citado. */
   focus?: { documentId: string; chunkIndex: number; snippet?: string; page?: number | null } | null;
   onFocusHandled?: () => void;
-}
-
-interface Upload {
-  name: string;
-  percent: number;
-  phase: "uploading" | "processing";
-  handle: UploadHandle;
 }
 
 function fmtSize(bytes: number): string {
@@ -137,7 +168,6 @@ export function DocumentPanel({
   const [viewing, setViewing] = useState<DocumentItem | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
-  const [upload, setUpload] = useState<Upload | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [focusSnippet, setFocusSnippet] = useState<string | null>(null);
   const [focusPage, setFocusPage] = useState<number | null>(null);
@@ -208,38 +238,19 @@ export function DocumentPanel({
     };
   }, [viewing]);
 
-  const startUpload = useCallback(
-    (file: File) => {
-      if (!file.name.toLowerCase().endsWith(".pdf")) {
-        setNotice("Apenas arquivos .pdf são aceitos.");
-        return;
+  // Fila de upload (concorrência 1): ao concluir cada doc, atualiza a lista e
+  // anexa à conversa ativa (fluxo do clipe).
+  const onDocumentReady = useCallback(
+    async (doc: DocumentItem) => {
+      await refresh();
+      if (sessionId) {
+        const ids = await attachDocuments(sessionId, [doc.id]).catch(() => null);
+        if (ids) onAttachedChange(ids);
       }
-      setNotice(null);
-      const handle = uploadDocumentWithProgress(file, (percent) =>
-        setUpload((u) => (u ? { ...u, percent } : u)),
-      );
-      setUpload({ name: file.name, percent: 0, phase: "uploading", handle });
-      handle.promise
-        .then(async (doc) => {
-          setUpload((u) => (u ? { ...u, phase: "processing", percent: 100 } : u));
-          await extractDocument(doc.id).catch(() => null);
-          await indexDocument(doc.id).catch(() => null);
-          await refresh();
-          // Já anexa o recém-enviado à conversa ativa (fluxo do clipe).
-          if (sessionId) {
-            const ids = await attachDocuments(sessionId, [doc.id]).catch(() => null);
-            if (ids) onAttachedChange(ids);
-          }
-          setNotice(`“${doc.filename}” adicionado.`);
-        })
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : "Falha no upload";
-          if (msg !== "Upload cancelado") setNotice(msg);
-        })
-        .finally(() => setUpload(null));
     },
     [refresh, sessionId, onAttachedChange],
   );
+  const queue = useUploadQueue(onDocumentReady);
 
   const removeDoc = useCallback(
     async (doc: DocumentItem) => {
@@ -330,44 +341,51 @@ export function DocumentPanel({
       ) : (
         <div className="doc-panel-body">
           <div className="doc-panel-actions">
-            <button className="btn-primary" onClick={() => fileInput.current?.click()} disabled={!!upload}>
+            <button className="btn-primary" onClick={() => fileInput.current?.click()}>
               + Adicionar PDF
             </button>
             <input
               ref={fileInput}
               type="file"
               accept="application/pdf"
+              multiple
               hidden
               onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) startUpload(f);
+                if (e.target.files?.length) queue.enqueue(Array.from(e.target.files));
                 e.target.value = "";
               }}
             />
           </div>
 
-          {upload ? (
-            <div className="upload-progress">
-              <div className="upload-progress-row">
-                <span className="upload-progress-name" title={upload.name}>
-                  {upload.phase === "processing" ? "Processando" : "Enviando"} · {upload.name}
-                </span>
-                <button
-                  className="upload-cancel"
-                  onClick={() => upload.handle.cancel()}
-                  disabled={upload.phase === "processing"}
-                  title={upload.phase === "processing" ? "Não é possível cancelar o processamento" : "Cancelar"}
-                >
-                  Cancelar
-                </button>
-              </div>
-              <div className="upload-bar">
-                <div
-                  className={`upload-bar-fill${upload.phase === "processing" ? " is-indeterminate" : ""}`}
-                  style={{ width: `${upload.percent}%` }}
-                />
-              </div>
-            </div>
+          {queue.items.length > 0 ? (
+            <ul className="upload-queue">
+              {queue.items.map((it) => (
+                <li key={it.id} className={`upload-item is-${it.status}`}>
+                  <div className="upload-item-row">
+                    <span className="upload-item-name" title={it.name}>
+                      {it.name}
+                    </span>
+                    <UploadItemAction item={it} queue={queue} />
+                  </div>
+                  <div className="upload-item-foot">
+                    <span className="upload-item-status">{STATUS_LABEL[it.status]}</span>
+                    <div className="upload-bar">
+                      <div
+                        className={`upload-bar-fill${
+                          it.status === "processing" ? " is-indeterminate" : ""
+                        }`}
+                        style={{ width: `${it.status === "queued" ? 0 : it.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                  {it.error && it.status === "failed" ? (
+                    <span className="upload-item-error" title={it.error}>
+                      {it.error}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           ) : null}
 
           {notice ? <p className="doc-panel-notice">{notice}</p> : null}
