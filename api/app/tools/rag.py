@@ -105,7 +105,12 @@ class OpenAICompatEmbedder:
         client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
 
         async def _one(t: str) -> list[float]:
-            resp = await client.embeddings.create(model=self.model, input=t)
+            # encoding_format="float": o SDK da OpenAI usa base64 por padrão quando
+            # há numpy, o que alguns provedores (ex.: OpenRouter) não devolvem —
+            # forçar float garante compatibilidade ampla.
+            resp = await client.embeddings.create(
+                model=self.model, input=t, encoding_format="float"
+            )
             return list(resp.data[0].embedding)
 
         return list(await asyncio.gather(*(_one(t) for t in texts)))
@@ -135,9 +140,20 @@ def get_embedder(settings: Settings) -> Embedder:
             model=model,
             provider="gemini",
         )
+    if provider == "openrouter":
+        # OpenRouter expõe /embeddings (OpenAI-compat). Modelo free por padrão:
+        # nvidia/llama-nemotron-embed-vl-1b-v2:free (dim 2048).
+        model = settings.embedding_model or "nvidia/llama-nemotron-embed-vl-1b-v2:free"
+        return OpenAICompatEmbedder(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=settings.openrouter_api_key,
+            model=model,
+            provider="openrouter",
+        )
     # Bedrock Titan: implementar quando a entrega usar AWS Bedrock.
     raise NotImplementedError(
-        f"Embedder para provider '{provider}' ainda não implementado (use 'ollama' ou 'gemini')"
+        f"Embedder para provider '{provider}' ainda não implementado "
+        "(use 'ollama', 'gemini' ou 'openrouter')"
     )
 
 

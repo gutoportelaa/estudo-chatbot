@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     extraction_ocr_min_chars_per_page: int = 100
 
     # ----- RAG: embeddings + pgvector (recuperação seletiva) — issue #34 -----
-    # Provedor de embeddings: "ollama" (dev, OpenAI-compat) | "gemini" | "bedrock".
+    # Provedor de embeddings: "ollama" (dev) | "gemini" | "openrouter" | "bedrock".
     embedding_provider: str = "ollama"
     # Modelo de embeddings (vazio = padrão do provedor: ollama→chat, gemini→gemini-embedding-001).
     embedding_model: str = ""
