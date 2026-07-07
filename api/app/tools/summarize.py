@@ -71,13 +71,21 @@ async def _complete(client: AsyncOpenAI, model: str, prompt: str, *, max_tokens:
     return (resp.choices[0].message.content or "").strip()
 
 
+def _single_prompt() -> str:
+    """Prompt de resumo único: usa o configurável se válido (contém {content})."""
+    from ..config import get_settings
+
+    p = get_settings().summary_prompt
+    return p if p and "{content}" in p else _SINGLE_PROMPT
+
+
 async def summarize_text(client: AsyncOpenAI, model: str, text: str) -> str:
     """Resumo de um documento (map-reduce quando longo)."""
     chunks = _split(text)
     if not chunks:
         return ""
     if len(chunks) == 1:
-        return await _complete(client, model, _SINGLE_PROMPT.format(content=chunks[0]))
+        return await _complete(client, model, _single_prompt().format(content=chunks[0]))
     partials = []
     for i, ch in enumerate(chunks, 1):
         logger.info("Resumo map: bloco %d/%d", i, len(chunks))
@@ -111,10 +119,14 @@ async def generate_mindmap(client: AsyncOpenAI, model: str, text: str) -> str:
     depende de o modelo de chat espontaneamente emitir o bloco. Para textos
     longos, resume antes (map-reduce) para caber e destacar a estrutura.
     """
+    from ..config import get_settings
+
     source = text
     if len(text) > _MAP_CHUNK_CHARS:
         source = await summarize_text(client, model, text)
-    outline = await _complete(client, model, _MINDMAP_PROMPT.format(content=source), max_tokens=900)
+    cfg = get_settings().mindmap_prompt
+    prompt = cfg if cfg and "{content}" in cfg else _MINDMAP_PROMPT
+    outline = await _complete(client, model, prompt.format(content=source), max_tokens=900)
     outline = _clean_outline(outline)
     # Garante um título de nível 1 para o Markmap ancorar a raiz.
     if not any(ln.lstrip().startswith("# ") for ln in outline.splitlines()):

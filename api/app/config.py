@@ -59,6 +59,15 @@ class Settings(BaseSettings):
         "Você pode acompanhar o mapa com uma breve explicação em texto."
     )
 
+    # ----- Resumos (#44/#45) — prompts configuráveis (devem conter {content}) -----
+    summary_prompt: str = (
+        "Resuma o documento a seguir em português, de forma clara e estruturada. "
+        "Use markdown: comece com uma frase-síntese em **negrito**, depois seções "
+        "com títulos '## ' e os pontos principais em listas '- '. Seja fiel ao "
+        "conteúdo, sem inventar. Documento:\n\n{content}"
+    )
+    mindmap_prompt: str = ""  # vazio = usa o padrão embutido
+
     # ----- Gestão de histórico (janela deslizante + sumarização híbrida) -----
     # Estratégia: "hybrid" (buffer recente + resumo), "window" (só janela), "off".
     history_strategy: str = "hybrid"

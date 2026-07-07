@@ -5,6 +5,8 @@
  */
 
 import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   generateMindmap,
   generateSingleSummary,
@@ -31,7 +33,11 @@ export function DocumentSummary({ doc }: { doc: DocumentItem }) {
     setError(null);
     setMmOpen(false);
     getSingleSummary(doc.id)
-      .then((s) => active && setSummary(s))
+      .then((s) => {
+        if (!active) return;
+        setSummary(s);
+        if (s) setOpen(true); // já existe → mostra direto (acessível ao reabrir)
+      })
       .catch(() => active && setSummary(null))
       .finally(() => active && setLoading(false));
     getMindmap(doc.id)
@@ -89,7 +95,11 @@ export function DocumentSummary({ doc }: { doc: DocumentItem }) {
           {generating ? "Gerando…" : summary ? "Regerar" : "Gerar resumo"}
         </button>
       </div>
-      {summary && open ? <div className="doc-summary-body md">{summary.content}</div> : null}
+      {summary && open ? (
+        <div className="doc-summary-body md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary.content}</ReactMarkdown>
+        </div>
+      ) : null}
 
       <div className="doc-summary-head" style={{ marginTop: 12 }}>
         <span className="doc-summary-title">Mapa mental</span>
