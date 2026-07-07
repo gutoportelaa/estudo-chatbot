@@ -215,6 +215,18 @@ export async function getSummaries(sessionId: string): Promise<SummaryEvent[]> {
   return req<SummaryEvent[]>(`/sessions/${sessionId}/summaries`);
 }
 
+export interface ContextState {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  breakdown: { system: number; summary: number; rag: number; recent: number; tool: number };
+  created_at: string;
+}
+
+export async function getSessionContext(sessionId: string): Promise<ContextState | null> {
+  return req<ContextState | null>(`/sessions/${sessionId}/context`);
+}
+
 // ---------- Health ----------
 
 function formatProviderLabel(provider: string, model: string): string {
@@ -411,6 +423,19 @@ export async function generateSingleSummary(documentId: string): Promise<Summary
 
 export async function getSingleSummary(documentId: string): Promise<SummaryItem | null> {
   return req<SummaryItem | null>(`/documents/${documentId}/summary`);
+}
+
+export async function generateMindmap(documentId: string): Promise<SummaryItem> {
+  return req<SummaryItem>(`/documents/${documentId}/mindmap`, { method: "POST" });
+}
+
+export async function getMindmap(documentId: string): Promise<SummaryItem | null> {
+  return req<SummaryItem | null>(`/documents/${documentId}/mindmap`);
+}
+
+export async function listSummaries(): Promise<SummaryItem[]> {
+  const data = await req<unknown>("/summaries");
+  return Array.isArray(data) ? (data as SummaryItem[]) : [];
 }
 
 export async function generateConsolidatedSummary(documentIds: string[]): Promise<SummaryItem> {

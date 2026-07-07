@@ -7,7 +7,20 @@
  */
 
 import { useEffect, useState } from "react";
-import { getSummaries, type SummaryEvent } from "../api/client";
+import {
+  getSessionContext,
+  getSummaries,
+  type ContextState,
+  type SummaryEvent,
+} from "../api/client";
+
+const BLOCK_LABEL: Record<string, string> = {
+  system: "Sistema",
+  summary: "Resumo",
+  rag: "RAG",
+  recent: "Recentes",
+  tool: "Ferramenta",
+};
 
 interface Props {
   sessionId: string;
@@ -29,14 +42,21 @@ function fmtDate(iso: string): string {
 
 export function ContextInspector({ sessionId, onClose }: Props) {
   const [events, setEvents] = useState<SummaryEvent[]>([]);
+  const [ctx, setCtx] = useState<ContextState | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    getSummaries(sessionId)
-      .then((e) => active && setEvents(e))
-      .catch(() => active && setEvents([]))
+    Promise.all([
+      getSummaries(sessionId).catch(() => [] as SummaryEvent[]),
+      getSessionContext(sessionId).catch(() => null),
+    ])
+      .then(([e, c]) => {
+        if (!active) return;
+        setEvents(e);
+        setCtx(c);
+      })
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
@@ -61,6 +81,41 @@ export function ContextInspector({ sessionId, onClose }: Props) {
             passo condensa mensagens antigas num resumo; quando o próprio resumo cresce
             demais, ele é recompactado (resumo-de-resumo).
           </p>
+
+          {!loading && ctx ? (
+            <div className="ctx-budget">
+              <div className="usage-section-head">
+                <h3>Janela do último turno</h3>
+                <span className="ctx-budget-total">
+                  {ctx.input_tokens} tokens de entrada · {ctx.model}
+                </span>
+              </div>
+              <div className="ctx-budget-bar">
+                {(["system", "summary", "rag", "recent", "tool"] as const).map((k) => {
+                  const v = ctx.breakdown[k];
+                  if (!v) return null;
+                  const pct = ctx.input_tokens > 0 ? (v / ctx.input_tokens) * 100 : 0;
+                  return (
+                    <div
+                      key={k}
+                      className={`ctx-budget-seg is-${k}`}
+                      style={{ width: `${pct}%` }}
+                      title={`${BLOCK_LABEL[k]}: ${v} tokens`}
+                    />
+                  );
+                })}
+              </div>
+              <div className="ctx-budget-legend">
+                {(["system", "summary", "rag", "recent", "tool"] as const).map((k) =>
+                  ctx.breakdown[k] ? (
+                    <span key={k} className="ctx-budget-legend-item">
+                      <i className={`ctx-budget-swatch is-${k}`} /> {BLOCK_LABEL[k]} · {ctx.breakdown[k]}
+                    </span>
+                  ) : null,
+                )}
+              </div>
+            </div>
+          ) : null}
 
           {loading ? (
             <p className="usage-muted">Carregando…</p>

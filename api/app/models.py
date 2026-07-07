@@ -258,4 +258,9 @@ class TurnMetric(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="ok")  # "ok" | "error"
     error: Mapped[str | None] = mapped_column(String(300), nullable=True)
     rag_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # tokens de contexto RAG (uso de ferramenta)
+    # Breakdown do orçamento de contexto por bloco (inspector sempre-on #31/D).
+    tokens_system: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_summary: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_recent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_tool: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)

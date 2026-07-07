@@ -81,6 +81,36 @@ thinkai.seudominio.com {
 ```
 Alternativa sem domínio: HTTP na 80 para a demo (a banca aceita, mas 443 pontua mais).
 
+### Frontend em S3 + CloudFront (site 24/7, alivia a EC2)
+
+O frontend é estático (build do Vite). Hospedá-lo em **S3 + CloudFront** deixa o
+site no ar **mesmo com a EC2 desligada** (que passa a subir só para a API nas
+demos), com HTTPS/CDN grátis. A EC2 serve **só a API** (`docker compose` sem o
+serviço `web`). Deploy automatizado em `.github/workflows/frontend-deploy.yml`.
+
+**Console (us-east-1):**
+1. **S3 → Create bucket** `thinkai-web-<sufixo>`, **Block all public access = ON**
+   (o acesso é só via CloudFront, não público direto).
+2. **CloudFront → Create distribution**: origin = o bucket S3 (via **Origin Access
+   Control / OAC**, criando a OAC na hora). **Default root object** = `index.html`.
+   - **Custom error responses**: 403 e 404 → resposta `/index.html` com **200**
+     (garante o SPA em acesso direto/refresh).
+   - Copie o **bucket policy** sugerido para o bucket (permite o OAC ler os objetos).
+3. Anote o **domínio** da distribuição (`dxxxx.cloudfront.net`).
+4. **IAM**: crie um usuário (ou role OIDC) com permissão de `s3:PutObject/DeleteObject/ListBucket`
+   no bucket e `cloudfront:CreateInvalidation` na distribuição. Gere as chaves.
+
+**Secrets/vars do repositório (GitHub → Settings):**
+- `vars.VITE_API_URL` = `http://<elastic-ip>:8000` (ou o domínio da API).
+- `secrets.AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (do usuário IAM acima).
+- `secrets.WEB_S3_BUCKET`, `secrets.CLOUDFRONT_DISTRIBUTION_ID`, `vars.AWS_REGION`.
+
+Ao dar merge em `main`, o workflow builda o frontend com a `VITE_API_URL`, faz
+`s3 sync` e invalida o CloudFront. **CORS da API**: o `CORS_ORIGINS` já é `*` no
+compose de produção, então a origem do CloudFront é aceita (restrinja depois, se
+quiser, ao domínio da distribuição). Com isso, pode remover o serviço `web` do
+`docker-compose.yml` na EC2.
+
 ### Economia (opcional) — desligar fora de horário
 **EventBridge → Schedule** (cron) → **Lambda** chamando `ec2:StopInstances`/
 `StartInstances`. Ou simplesmente parar a instância manualmente após cada demo.

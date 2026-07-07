@@ -71,6 +71,10 @@ jobs:
             echo $GHCR_TOKEN | docker login ghcr.io -u gutoportelaa --password-stdin
             cd ~/estudo-chatbot
             git pull origin main
+            # Libera espaço antes do pull (a EC2 tem disco pequeno; imagens antigas
+            # entopem o /var/lib/docker e faziam o pull falhar com "no space left").
+            docker image prune -f
             docker compose pull api web
             docker compose up -d
+            docker image prune -f
             curl -sf http://localhost:8000/health || (docker compose logs api && exit 1)

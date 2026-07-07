@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import get_current_user
 from ..context import list_summaries
 from ..database import get_db
-from ..models import Document, Message, Session, SessionDocument, User
+from ..models import Document, Message, Session, SessionDocument, TurnMetric, User
 from ..runner import APP_NAME, get_runner
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -155,6 +155,42 @@ async def _session_document_ids(db: AsyncSession, session_id: str) -> list[str]:
             )
         ).scalars()
     )
+
+
+@router.get("/{session_id}/context")
+async def get_session_context(
+    session_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict | None:
+    """Estado atual da janela de contexto: breakdown de tokens do último turno
+    (inspector sempre-on #31/D). ``None`` se a conversa ainda não teve turnos."""
+    session = await db.get(Session, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sessão não encontrada")
+    row = (
+        await db.execute(
+            select(TurnMetric)
+            .where(TurnMetric.session_id == session_id)
+            .order_by(TurnMetric.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not row:
+        return None
+    return {
+        "model": row.model,
+        "input_tokens": row.input_tokens,
+        "output_tokens": row.output_tokens,
+        "breakdown": {
+            "system": row.tokens_system,
+            "summary": row.tokens_summary,
+            "rag": row.rag_tokens,
+            "recent": row.tokens_recent,
+            "tool": row.tokens_tool,
+        },
+        "created_at": row.created_at.isoformat(),
+    }
 
 
 @router.get("/{session_id}/documents")

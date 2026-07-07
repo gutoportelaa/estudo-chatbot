@@ -13,16 +13,19 @@ import { useSessions } from "./hooks/useSessions";
 import { useTheme } from "./hooks/useTheme";
 import { PreferencesModal } from "./components/PreferencesModal";
 import { ProfileModal } from "./components/ProfileModal";
+import { ContextInspector } from "./components/ContextInspector";
 import { ConsumoView } from "./components/ConsumoView";
 import { MemoryBadge } from "./components/MemoryBadge";
 import { BibliotecaView } from "./components/BibliotecaView";
+import { DashboardView } from "./components/DashboardView";
 
 export default function App() {
   const { theme, toggleTheme, colorStart, colorEnd, setColorStart, setColorEnd } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [view, setView] = useState<"chat" | "biblioteca" | "consumo">("chat");
+  const [contextOpen, setContextOpen] = useState(false);
+  const [view, setView] = useState<"dashboard" | "chat" | "biblioteca" | "consumo">("dashboard");
   const [modelName, setModelName] = useState("");
 
   useEffect(() => {
@@ -200,10 +203,13 @@ export default function App() {
         }}
         onOpenPreferences={() => setPrefsOpen(true)}
         onOpenProfile={() => setProfileOpen(true)}
+        onOpenContext={() => setContextOpen(true)}
         onOpenUsage={() => setView("consumo")}
         onOpenBiblioteca={() => setView("biblioteca")}
+        onOpenDashboard={() => setView("dashboard")}
         bibliotecaActive={view === "biblioteca"}
         consumoActive={view === "consumo"}
+        dashboardActive={view === "dashboard"}
       />
 
       <PreferencesModal
@@ -222,6 +228,10 @@ export default function App() {
         onUpdated={(u) => auth.setUser(u)}
       />
 
+      {contextOpen && sessionId ? (
+        <ContextInspector sessionId={sessionId} onClose={() => setContextOpen(false)} />
+      ) : null}
+
       <div className="window">
         <Header
           theme={theme}
@@ -233,7 +243,20 @@ export default function App() {
 
         <div className={`window-body${panelOpen && view === "chat" ? " has-panel" : ""}`}>
           <div className="chat-column">
-            {view === "consumo" ? (
+            {view === "dashboard" ? (
+              <main className="content is-biblioteca">
+                <DashboardView
+                  username={auth.user.username}
+                  onNewChat={() => {
+                    setView("chat");
+                    void sessions.createNewSession();
+                  }}
+                  onOpenBiblioteca={() => setView("biblioteca")}
+                  onOpenConsumo={() => setView("consumo")}
+                  onOpenProfile={() => setProfileOpen(true)}
+                />
+              </main>
+            ) : view === "consumo" ? (
               <main className="content is-biblioteca">
                 <ConsumoView />
               </main>

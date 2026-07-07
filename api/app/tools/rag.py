@@ -99,21 +99,44 @@ class OpenAICompatEmbedder:
         self.provider = provider
         self.model_id = model
 
+    # Lote de textos por request e teto de requisições concorrentes. Documentos
+    # grandes (centenas de páginas) geravam milhares de chamadas simultâneas que
+    # estouravam o rate limit (ex.: free tier do OpenRouter). Batch + semáforo +
+    # retry com backoff mantêm o reindex robusto.
+    BATCH_SIZE = 32
+    MAX_CONCURRENCY = 4
+    MAX_RETRIES = 4
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
+        import random
+
         from openai import AsyncOpenAI
 
+        if not texts:
+            return []
         client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+        sem = asyncio.Semaphore(self.MAX_CONCURRENCY)
+        batches = [texts[i : i + self.BATCH_SIZE] for i in range(0, len(texts), self.BATCH_SIZE)]
 
-        async def _one(t: str) -> list[float]:
-            # encoding_format="float": o SDK da OpenAI usa base64 por padrão quando
-            # há numpy, o que alguns provedores (ex.: OpenRouter) não devolvem —
-            # forçar float garante compatibilidade ampla.
-            resp = await client.embeddings.create(
-                model=self.model, input=t, encoding_format="float"
-            )
-            return list(resp.data[0].embedding)
+        async def _batch(items: list[str]) -> list[list[float]]:
+            # encoding_format="float": o SDK usa base64 por padrão (com numpy), que
+            # alguns provedores (ex.: OpenRouter) não devolvem — força float.
+            async with sem:
+                for attempt in range(self.MAX_RETRIES):
+                    try:
+                        resp = await client.embeddings.create(
+                            model=self.model, input=items, encoding_format="float"
+                        )
+                        ordered = sorted(resp.data, key=lambda d: d.index)
+                        return [list(d.embedding) for d in ordered]
+                    except Exception:
+                        if attempt == self.MAX_RETRIES - 1:
+                            raise
+                        await asyncio.sleep(2**attempt + random.random())
+                return []
 
-        return list(await asyncio.gather(*(_one(t) for t in texts)))
+        results = await asyncio.gather(*(_batch(b) for b in batches))
+        return [vec for batch in results for vec in batch]
 
 
 def get_embedder(settings: Settings) -> Embedder:
