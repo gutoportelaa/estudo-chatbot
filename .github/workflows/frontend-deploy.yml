@@ -24,6 +24,10 @@ on:
 jobs:
   deploy:
     name: Build e publicar no S3/CloudFront
+    # Só roda quando a hospedagem estática estiver provisionada (defina a repo var
+    # ENABLE_FRONTEND_DEPLOY=true). Sem isso o job é pulado — não falha nem bloqueia
+    # o merge. Enquanto o frontend for servido pela EC2 (issues de infra), fica off.
+    if: ${{ vars.ENABLE_FRONTEND_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     env:
       # Exposto como env para poder condicionar a invalidação (S3-website não tem CF).
