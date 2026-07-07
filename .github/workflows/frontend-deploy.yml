@@ -25,6 +25,9 @@ jobs:
   deploy:
     name: Build e publicar no S3/CloudFront
     runs-on: ubuntu-latest
+    env:
+      # Exposto como env para poder condicionar a invalidação (S3-website não tem CF).
+      CF_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +62,9 @@ jobs:
             --cache-control "no-cache"
 
       - name: Invalidar CloudFront
+        # Só roda quando há distribuição (no caminho S3 Static Website, não existe).
+        if: env.CF_ID != ''
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --distribution-id "$CF_ID" \
             --paths "/*"
