@@ -160,6 +160,181 @@ O clipe (📎) do chat anexa um PDF à conversa atual em andamento.
   `status`/`error`/`rag_tokens` (persistidos **também em falha**) e o
   `/metrics/usage` agrega falhas, taxa de sucesso e uso de ferramenta.
 
+### Etapa 16 — Busca web como ferramenta de contexto (#35)
+
+`app/tools/websearch.py`: ferramenta de busca na web que traz **conteúdo**, não só
+links. Provedor configurável (`WEB_SEARCH_PROVIDER=auto`): **Tavily**
+(`search_depth=advanced` + `include_answer`, síntese pronta) quando há
+`TAVILY_API_KEY`, com **DuckDuckGo** como fallback grátis. O acionamento é por
+toggle do usuário **ou** por heurística (datas, "hoje", URLs, "pesquise…"), útil
+para modelos pequenos **sem tool-calling nativo**. O resultado respeita o contrato
+de contexto (#32): entra na cota `WEB_SEARCH_MAX_TOKENS` (síntese + trechos), com o
+bruto fora do prompt. As fontes são exibidas como os chunks do RAG, e um modo de
+**etapas ("thinking")** é emitido via eventos SSE para transparência da execução.
+
+### Etapa 17 — Mapas mentais com Markmap (#36)
+
+Diagramas passaram a ser **Markmap** (outline em Markdown), não ReactFlow
+(descartado por render quebrado) nem Mermaid (conflita com a decisão do Markmap).
+O modelo emite um bloco ` ```markmap ` com um outline (`#` central, `##` ramos,
+`-` folhas) que o front renderiza (`markmap-lib` + `markmap-view`,
+`MindmapView.tsx`). Além do caminho espontâneo do chat, há um **botão
+determinístico** ("Gerar mapa") que chama `POST /documents/{id}/mindmap` — não
+depende do modelo lembrar de emitir o bloco.
+
+### Etapa 18 — Citações do RAG com página + isolamento por conversa
+
+- **Chunk → página do PDF:** a extração preserva o separador de página (`\f`) e o
+  chunking passa a ser *page-aware* (`chunk_pages`), gravando `Chunk.page`. As
+  respostas citam a **página** da fonte.
+- **Referências por mensagem:** cada `Message` guarda suas `sources` (JSON); o chat
+  mostra um **ícone de referência** ao lado da bolha (não um bloco sempre aberto), e
+  as fontes são **por mensagem** (corrige o acúmulo anterior).
+- **Isolamento por conversa reforçado:** o RAG só atua quando há documentos
+  escopados à sessão (`SessionDocument`); sem escopo, não injeta nada — não há
+  vazamento entre conversas.
+
+### Etapa 19 — Resumos (single/consolidado/mapa) + prompts configuráveis (#44/#45)
+
+`app/tools/summarize.py`: resumo **map-reduce** (cabe em qualquer janela), resumo
+**consolidado** N documentos (`POST /summaries/consolidated`) e geração de mapa
+mental. Modelos `Summary`/`SummaryDocument` (N:N). O front (`DocumentSummary.tsx`)
+renderiza o resumo como **markdown** (react-markdown + remark-gfm), **auto-exibe**
+quando já existe (acessível ao reabrir) e tem seção de mapa mental. Os prompts de
+resumo e de mapa são **configuráveis por env** (`SUMMARY_PROMPT`, `MINDMAP_PROMPT`;
+devem conter `{content}`), com padrão que pede estrutura em markdown.
+
+### Etapa 20 — Perfil de usuário, Dashboard e robustez de embeddings
+
+- **Perfil (B1/B2, #39/#40):** `User` ganhou `full_name`, `email`, `description`,
+  `avatar_key`; `ProfileModal.tsx` edita dados e avatar (storage abstraído).
+- **Dashboard pós-login (#46):** `DashboardView.tsx` como home, reusando
+  documentos/resumos/uso — **SPA state-driven** (sem router), decisão registrada.
+- **Embeddings via OpenRouter:** além de Ollama (dev) e Gemini, `EMBEDDING_PROVIDER=openrouter`
+  (`nvidia/llama-nemotron-embed-vl-1b-v2:free`), após Gemini estourar cota (429).
+  `OpenAICompatEmbedder` ficou **robusto**: batches (`BATCH_SIZE=32`), concorrência
+  limitada (semáforo=4), *retry* com backoff e `encoding_format="float"`
+  (obrigatório no OpenRouter; o default base64 falhava). Isso destravou o reindex de
+  documentos grandes (centenas de páginas) que antes disparava 1 requisição por
+  chunk e batia rate limit.
+- **Streaming resiliente + inspector sempre-ligado:** store de módulo por sessão
+  (`chatStore.ts`) e `ContextInspector.tsx` mostrando o *budget* por bloco
+  (system/summary/rag/recent/tool) e a timeline de sumarização.
+- **Deploy de frontend gateado:** `.github/workflows/frontend-deploy.yml`
+  (build Vite → `s3 sync` → invalidação CloudFront) roda só com
+  `ENABLE_FRONTEND_DEPLOY=true` — assim **não bloqueia o merge** enquanto o front é
+  servido pela EC2 e o CloudFront não está provisionado.
+
+---
+
+## Diferenças em relação ao planejamento (resumo)
+
+| Planejado | O que mudou / foi além |
+|---|---|
+| Diagramas com ReactFlow/Mermaid | **Markmap** (outline markdown) + botão determinístico |
+| Busca web (links) | Busca traz **conteúdo** (Tavily advanced+answer) + fallback DuckDuckGo + heurística p/ modelos sem tool-calling + modo etapas (SSE) |
+| Embeddings Gemini em prod | **OpenRouter** (free) após cota do Gemini; embedder com batching/retry/float |
+| RAG cita "a fonte" | Cita **página** (chunk page-aware) + referências **por mensagem** + isolamento por conversa |
+| Consumo (modal) | **Página** dedicada com KPIs, falhas, uso de RAG; `TurnMetric` grava status/erro **em falha** |
+| Resumos (backend) | Front renderiza markdown, auto-exibe, consolidado + mapa; **prompts por env** |
+| Frontend no nginx da EC2 | Workflow **S3+CloudFront gateado** (não bloqueia merge; EC2 serve só a API quando ligado) |
+| Perfil (planejado simples) | B1/B2 com avatar (storage abstraído) + **Dashboard** pós-login SPA state-driven |
+
+> **Sinal de diagrama (para gerar imagem via LLM):** os blocos ` ```diagram-spec `
+> abaixo contêm um JSON descritivo. Envie o JSON a uma LLM generativa de imagens
+> pedindo "renderize este diagrama como imagem" para obter os PNGs de documentação.
+
+```diagram-spec
+{
+  "id": "arquitetura-thinkai",
+  "titulo": "Arquitetura ThinkAI (visão de deploy)",
+  "tipo": "arquitetura-de-sistema",
+  "orientacao": "esquerda-para-direita",
+  "nos": [
+    {"id": "user", "rotulo": "Usuário (browser)", "grupo": "cliente"},
+    {"id": "cf", "rotulo": "CloudFront + S3 (frontend estático, 24/7)", "grupo": "aws-edge"},
+    {"id": "web", "rotulo": "React SPA (Vite/bun)", "grupo": "cliente"},
+    {"id": "api", "rotulo": "FastAPI (EC2, subnet pública)", "grupo": "aws-vpc-publica"},
+    {"id": "db", "rotulo": "PostgreSQL 16 + pgvector (container)", "grupo": "aws-vpc-privada"},
+    {"id": "s3", "rotulo": "S3 (PDFs, presigned)", "grupo": "aws"},
+    {"id": "llm", "rotulo": "LLM (Gemini/Groq/OpenRouter/Ollama)", "grupo": "externo"},
+    {"id": "embed", "rotulo": "Embeddings (OpenRouter/Gemini/Ollama)", "grupo": "externo"},
+    {"id": "web_search", "rotulo": "Busca web (Tavily/DuckDuckGo)", "grupo": "externo"}
+  ],
+  "arestas": [
+    {"de": "user", "para": "cf", "rotulo": "HTTPS"},
+    {"de": "cf", "para": "web", "rotulo": "serve build"},
+    {"de": "web", "para": "api", "rotulo": "REST + SSE"},
+    {"de": "api", "para": "db", "rotulo": "SQLAlchemy async"},
+    {"de": "api", "para": "s3", "rotulo": "upload/presign"},
+    {"de": "api", "para": "llm", "rotulo": "chat streaming"},
+    {"de": "api", "para": "embed", "rotulo": "RAG reindex/query"},
+    {"de": "api", "para": "web_search", "rotulo": "tool de contexto"}
+  ],
+  "notas": ["NAT Gateway evitado (custo)", "IAM Role na EC2 p/ S3/SSM sem chave no disco"]
+}
+```
+
+```diagram-spec
+{
+  "id": "pipeline-rag",
+  "titulo": "Pipeline RAG (upload → resposta com citação de página)",
+  "tipo": "fluxograma",
+  "orientacao": "vertical",
+  "etapas": [
+    {"id": "upload", "rotulo": "Upload PDF (≤50MB) → S3"},
+    {"id": "extract", "rotulo": "Extração PyMuPDF (+ OCR Tesseract/Textract)", "detalhe": "preserva \\f por página"},
+    {"id": "chunk", "rotulo": "Chunking page-aware (grava Chunk.page)"},
+    {"id": "embed", "rotulo": "Embeddings em batch (32) + retry", "detalhe": "proveniência por chunk"},
+    {"id": "store", "rotulo": "pgvector (Vector dimensionless)"},
+    {"id": "query", "rotulo": "Turno: top-k por sessão (SessionDocument)"},
+    {"id": "assemble", "rotulo": "Context Assembler: cota RAG no orçamento"},
+    {"id": "answer", "rotulo": "Resposta + citação de página (Message.sources)"}
+  ],
+  "fluxo": ["upload","extract","chunk","embed","store","query","assemble","answer"]
+}
+```
+
+---
+
+## Testes e ambientes de teste
+
+### Suíte automatizada (pytest)
+- **Local:** `cd api && uv run pytest` — **76 testes** cobrindo Context Assembler
+  (#30) e histórico híbrido (#31), contrato de ferramentas (#32), extração (#33),
+  RAG/chunking/embedder (#34), documentos/storage, auth/JWT e métricas.
+- **Banco de teste:** **SQLite** em memória (isolado do Postgres de dev), sem
+  dependência de rede — roda offline e no CI.
+- **CI (`.github/workflows/ci.yml`):** a cada push/PR → backend `uv sync` +
+  `ruff check` (+ pytest); frontend `bun install` + `tsc --noEmit` + `bun run build`.
+  PR com lint/build/type quebrado é **bloqueado** antes do merge.
+
+### Ambiente de teste local (rede local / sem nuvem)
+- **Docker Compose:** `db` (`pgvector/pgvector:pg16`), `api` (8001) e `web` (5173).
+  Postgres local em **5433** para não conflitar (ver `docs/inicializacao-local.md`).
+- **LLM/embeddings sem chave:** **Ollama** (`llama3.2:3b`) como provedor de chat e
+  de embeddings → desenvolvimento e teste **100% offline**, sem custo de API.
+- **Busca web sem chave:** fallback **DuckDuckGo** funciona sem `TAVILY_API_KEY`.
+- **Storage local:** `STORAGE_BACKEND=local` (filesystem) dispensa S3 no dev.
+- **Migrations:** `alembic upgrade head` valida o schema; `alembic current` deve
+  bater com `head`.
+
+### Ambiente de teste em infraestrutura AWS
+- **EC2 (subnet pública):** valida a **Etapa 6/F3** — app acessível via Internet
+  (Elastic IP), Security Group com **SSH restrito ao IP de admin** e 80/443 abertos.
+- **Verificação de deploy:** o CD (`cd.yml`) faz SSH → `git pull` → `docker compose
+  pull/up` → **health check** por `curl`. Checar a versão ativa com
+  `docker compose images` / `docker logs thinkai-api`.
+- **S3 real:** teste de *round-trip* de upload (presigned PUT/GET) contra o bucket
+  `thinkai-pdfs-<sufixo>`; `Block Public Access = ON` (acesso só via app).
+- **RAG em produção:** após deploy, `POST /documents/reindex` re-vetoriza os
+  documentos com o embedder de produção (guard de consistência ignora vetores de
+  outro modelo). Validar `Chunk` > 0 por documento.
+- **Observabilidade:** conversar no chat gera `TurnMetric`; verificar na página
+  **Consumo** e nos logs estruturados (`docker logs thinkai-api | grep turn_metrics`).
+- **Checklist de aceitação da banca:** ver `docs/aws-runbook.md`
+  (INF-001 VPC / INF-002 SG / INF-003 acesso público / RF-002 upload S3 / pgvector).
+
 ---
 
 ## Arquitetura atual
@@ -180,7 +355,7 @@ O clipe (📎) do chat anexa um PDF à conversa atual em andamento.
 | Banco de dados | PostgreSQL 16 + **pgvector** | Relacional + busca vetorial (RAG) no mesmo banco |
 | ORM | SQLAlchemy async + Alembic | Migrations versionadas, queries tipadas |
 | Extração de PDF | **PyMuPDF** (nativo) + OCR | Tesseract (local) / AWS Textract (prod) |
-| Embeddings | **Ollama** (dev) / **Gemini** (prod) | Trocável por config; proveniência por chunk + reindex |
+| Embeddings | **Ollama** (dev) / **Gemini** / **OpenRouter** (prod) | Trocável por config; batching+retry; proveniência por chunk + reindex |
 | Observabilidade | Log `turn_metrics` + tabela + página Consumo | Tokens/custo/latência/status/falhas/RAG por turno; CloudWatch na AWS |
 | Armazenamento de arquivos | **S3** (prod) / filesystem (dev) | Abstração `StorageBackend`; IAM Role no S3 |
 | Autenticação | JWT (python-jose + bcrypt) | Stateless, sem dependência de sessão no servidor |
@@ -193,7 +368,7 @@ O clipe (📎) do chat anexa um PDF à conversa atual em andamento.
 
 | Modelo | Descrição |
 |---|---|
-| `User` | Usuário (username, hash bcrypt; campos de perfil da B1 em WIP) |
+| `User` | Usuário (username, hash bcrypt; perfil B1/B2: full_name, email, description, avatar_key) |
 | `Session` / `Message` | Sessão de chat e mensagens (role user/assistant) |
 | `ConversationSummary` | Resumo do histórico compactado (auditoria da #31) |
 | `Document` | PDF enviado: storage + `extraction_status`/`extracted_key`/`thumbnail_key` |
