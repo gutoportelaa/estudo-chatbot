@@ -40,9 +40,11 @@ function stageLabel(stage: string): string {
 export function Message({
   message,
   onOpenSource,
+  onOpenSources,
 }: {
   message: ChatMessage;
   onOpenSource?: (source: MessageSource) => void;
+  onOpenSources?: (sources: MessageSource[]) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -83,20 +85,31 @@ export function Message({
         </span>
       )}
       <div className="message-bubble">{body}</div>
-      {hasSources ? <ReferenceToggle sources={sources} onOpenSource={onOpenSource} /> : null}
+      {hasSources ? (
+        <ReferenceToggle
+          sources={sources}
+          onOpenSource={onOpenSource}
+          onOpenAll={() => onOpenSources?.(sources)}
+        />
+      ) : null}
     </div>
   );
 }
 
-/** Ícone lateral discreto que abre um popover com as referências da mensagem. */
+/** Ícone lateral discreto que abre um popover com as referências da mensagem.
+ * Um botão extra "Ver fontes" abre o painel lateral com todos os trechos em
+ * cards (fluxo do DocumentPanel informativo). */
 function ReferenceToggle({
   sources,
   onOpenSource,
+  onOpenAll,
 }: {
   sources: NonNullable<ChatMessage["sources"]>;
   onOpenSource?: (source: MessageSource) => void;
+  onOpenAll?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const hasRag = sources.some((s) => s.kind === "rag");
   return (
     <div className="msg-ref">
       <button
@@ -119,6 +132,18 @@ function ReferenceToggle({
               onOpenSource?.(s);
             }}
           />
+          {hasRag && onOpenAll ? (
+            <button
+              type="button"
+              className="msg-ref-open-all"
+              onClick={() => {
+                setOpen(false);
+                onOpenAll();
+              }}
+            >
+              Ver fontes no painel →
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

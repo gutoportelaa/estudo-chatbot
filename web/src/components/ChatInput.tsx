@@ -7,7 +7,6 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   modelName?: string;
-  onOpenAttach?: () => void;
   attachedCount?: number;
   webSearch?: boolean;
   onToggleWebSearch?: () => void;
@@ -19,7 +18,6 @@ export function ChatInput({
   value,
   onChange,
   modelName,
-  onOpenAttach,
   attachedCount = 0,
   webSearch = false,
   onToggleWebSearch,
@@ -61,7 +59,10 @@ export function ChatInput({
         <div className="chat-input-left">
           <span className="model-label">{modelName || "—"}</span>
           {attachedCount > 0 ? (
-            <span className="attach-chip" title="Documentos nesta conversa">
+            <span
+              className="attach-chip"
+              title={`${attachedCount} documento${attachedCount > 1 ? "s" : ""} nesta conversa · gerencie em Biblioteca`}
+            >
               <PaperclipIcon /> {attachedCount}
             </span>
           ) : null}
@@ -76,16 +77,6 @@ export function ChatInput({
               title={webSearch ? "Busca na web: ligada" : "Buscar na web"}
             >
               <GlobeIcon />
-            </button>
-          ) : null}
-          {onOpenAttach ? (
-            <button
-              className="icon-btn ghost"
-              onClick={onOpenAttach}
-              aria-label="Abrir documentos da conversa"
-              title="Documentos da conversa"
-            >
-              <PaperclipIcon />
             </button>
           ) : null}
           <button
