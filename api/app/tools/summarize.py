@@ -1,55 +1,115 @@
-"""Geração de resumos de documentos via LLM (issues #44 single / #45 consolidated).
+"""Geração de resumos e mapas mentais multi-documento (worker assíncrono).
 
-Estratégia **map-reduce** para caber em qualquer janela de contexto:
-- *map*: divide o texto em blocos grandes e resume cada um;
-- *reduce*: sintetiza os resumos parciais num resumo final coeso.
+Todas as funções recebem uma lista de documentos ``[(filename, text)]`` e
+os injetam no prompt com delimitação XML ``<documento filename="...">…</documento>``
+para que a LLM trate cada um como contexto próprio (não mistura fatos entre docs).
 
-Textos curtos são resumidos em uma única passada. Reusa o client OpenAI-compat do
-provedor de chat ativo (``build_chat_client``). Tratamento de erro fica no chamador
-(router): aqui as exceções sobem para virar HTTP 502/500 com mensagem clara.
+Se a soma dos textos estourar o teto ``_SINGLE_CALL_MAX_CHARS``, cai no fallback
+**map-reduce**: cada doc vira um resumo parcial (map) e depois um único
+prompt sintetiza a saída final (reduce). Assim o pipeline aguenta docs grandes
+sem estourar a janela de nenhum provedor.
+
+O chamador (worker) trata exceções — aqui, tudo sobe.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 
 from openai import AsyncOpenAI
 
 logger = logging.getLogger("thinkai.summarize")
 
-# ~limite de caracteres por bloco no *map* (folga sobre a janela do modelo).
-_MAP_CHUNK_CHARS = 9000
+# Teto para tentar uma única chamada com todos os docs concatenados. Acima disso,
+# entra o map-reduce por documento (evita estourar janela e mantém latência ok).
+_SINGLE_CALL_MAX_CHARS = 30_000
+# Fatiamento de map-reduce por documento longo — cada fatia vira um resumo parcial.
+_MAP_CHUNK_CHARS = 9_000
 
-_SINGLE_PROMPT = (
-    "Resuma o documento a seguir em português, de forma clara e estruturada: "
-    "comece com uma frase-síntese, depois os pontos principais em tópicos. "
-    "Seja fiel ao conteúdo, sem inventar. Documento:\n\n{content}"
+
+# ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
+
+
+_TITLE_MARKER = "TÍTULO:"
+
+_SUMMARY_INSTRUCTIONS = (
+    "Você receberá {n_docs} documento(s) delimitados por tags "
+    "<documento filename=\"...\">…</documento>. Trate cada um como contexto "
+    "próprio: NÃO misture fatos entre documentos. Escreva em português.\n\n"
+    "Responda EXATAMENTE neste formato:\n"
+    f"{_TITLE_MARKER} <título curto, 5 a 8 palavras, sem aspas>\n\n"
+    "## Resumo por documento\n"
+    "### <filename do doc 1>\n"
+    "<frase-síntese em **negrito** + tópicos em `- `>\n"
+    "### <filename do doc 2>\n"
+    "…\n\n"
+    "## Síntese integrada\n"
+    "<parágrafo curto conectando os documentos; destaque convergências e "
+    "divergências entre eles usando [filename] entre colchetes ao citar>\n\n"
+    "Se houver apenas 1 documento, omita a seção 'Síntese integrada'."
 )
-_MAP_PROMPT = (
-    "Resuma objetivamente este trecho de um documento, preservando fatos, termos "
-    "e números importantes (em português):\n\n{content}"
+
+_MAP_INSTRUCTIONS = (
+    "Resuma objetivamente o trecho abaixo em português, preservando fatos, "
+    "termos e números importantes. Não invente. Trecho:"
 )
-_REDUCE_PROMPT = (
-    "A seguir estão resumos parciais de um mesmo documento, em ordem. Sintetize-os "
-    "num único resumo coeso em português: uma frase-síntese seguida dos pontos "
-    "principais em tópicos, sem repetições. Resumos parciais:\n\n{content}"
+
+_REDUCE_INSTRUCTIONS = (
+    "A seguir estão resumos parciais de {n_docs} documento(s) diferentes, "
+    "identificados por <documento filename=\"...\">. Produza a saída final "
+    "EXATAMENTE no formato abaixo (português):\n\n"
+    f"{_TITLE_MARKER} <título curto, 5 a 8 palavras, sem aspas>\n\n"
+    "## Resumo por documento\n"
+    "### <filename>\n"
+    "<frase-síntese em **negrito** + tópicos em `- `>\n\n"
+    "## Síntese integrada\n"
+    "<parágrafo curto com convergências/divergências, citando [filename]>\n\n"
+    "Se houver apenas 1 documento, omita a 'Síntese integrada'."
 )
-_CONSOLIDATED_PROMPT = (
-    "A seguir estão resumos de documentos diferentes sobre um tema. Produza um "
-    "**resumo consolidado** em português que integre as informações, destaque "
-    "convergências e divergências e organize por tópicos. Indique entre colchetes "
-    "o número do documento ao citar algo específico. Resumos:\n\n{content}"
+
+_MINDMAP_INSTRUCTIONS = (
+    "Você receberá {n_docs} documento(s) delimitados por tags "
+    "<documento filename=\"...\">…</documento>. Gere UM ÚNICO mapa mental como "
+    "outline em Markdown puro (sem cercas de código, sem texto fora do outline).\n\n"
+    "Regras estritas:\n"
+    "- Uma única linha de nível 1 (# Título central).\n"
+    "- Nível 2 (## Ramo) para cada documento OU para cada tema principal.\n"
+    "- Folhas em '- item' (podem aninhar com indentação).\n"
+    "- Rótulos curtos, em português, sem markdown extra.\n"
+    "- Trate cada documento como contexto próprio: NÃO misture fatos entre eles.\n"
 )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _escape(text: str) -> str:
+    """Neutraliza tags <documento> internas no texto do PDF pra não confundir o parser da LLM."""
+    return (text or "").replace("<documento", "&lt;documento").replace("</documento>", "&lt;/documento&gt;")
+
+
+def _wrap_docs(docs: list[tuple[str, str]]) -> str:
+    """Junta os docs no formato ``<documento filename="X">...</documento>``."""
+    return "\n\n".join(
+        f'<documento filename="{filename}">\n{_escape(text)}\n</documento>'
+        for filename, text in docs
+        if text and text.strip()
+    )
 
 
 def _split(text: str, size: int = _MAP_CHUNK_CHARS) -> list[str]:
+    """Fatias de ~``size`` chars quebrando em parágrafo/espaço quando possível."""
     text = (text or "").strip()
     if len(text) <= size:
         return [text] if text else []
     out, i = [], 0
     while i < len(text):
         end = min(i + size, len(text))
-        # tenta quebrar num parágrafo/espaço próximo para não cortar no meio
         if end < len(text):
             brk = text.rfind("\n", i, end)
             if brk == -1:
@@ -61,7 +121,7 @@ def _split(text: str, size: int = _MAP_CHUNK_CHARS) -> list[str]:
     return [c for c in out if c]
 
 
-async def _complete(client: AsyncOpenAI, model: str, prompt: str, *, max_tokens: int = 800) -> str:
+async def _complete(client: AsyncOpenAI, model: str, prompt: str, *, max_tokens: int = 1200) -> str:
     resp = await client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
@@ -71,40 +131,22 @@ async def _complete(client: AsyncOpenAI, model: str, prompt: str, *, max_tokens:
     return (resp.choices[0].message.content or "").strip()
 
 
-def _single_prompt() -> str:
-    """Prompt de resumo único: usa o configurável se válido (contém {content})."""
-    from ..config import get_settings
+def _extract_title(content: str) -> tuple[str | None, str]:
+    """Extrai a linha ``TÍTULO: ...`` (se houver) e devolve (título, resto).
 
-    p = get_settings().summary_prompt
-    return p if p and "{content}" in p else _SINGLE_PROMPT
-
-
-async def summarize_text(client: AsyncOpenAI, model: str, text: str) -> str:
-    """Resumo de um documento (map-reduce quando longo)."""
-    chunks = _split(text)
-    if not chunks:
-        return ""
-    if len(chunks) == 1:
-        return await _complete(client, model, _single_prompt().format(content=chunks[0]))
-    partials = []
-    for i, ch in enumerate(chunks, 1):
-        logger.info("Resumo map: bloco %d/%d", i, len(chunks))
-        partials.append(await _complete(client, model, _MAP_PROMPT.format(content=ch)))
-    joined = "\n\n".join(f"[Parte {i}] {p}" for i, p in enumerate(partials, 1))
-    return await _complete(client, model, _REDUCE_PROMPT.format(content=joined), max_tokens=1000)
-
-
-_MINDMAP_PROMPT = (
-    "Gere um **mapa mental** do documento a seguir como um OUTLINE em Markdown, "
-    "e responda APENAS com o outline (sem texto extra, sem cercas de código). "
-    "Formato: um único título de nível 1 (# Tópico central), tópicos principais "
-    "em nível 2 (## Ramo) e folhas como itens de lista (- item), aninháveis com "
-    "indentação. Rótulos curtos, em português. Documento:\n\n{content}"
-)
+    Case-insensitive porque alguns modelos escrevem ``Titulo:`` sem acento.
+    """
+    pattern = re.compile(rf"^\s*T[ÍI]TULO:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+    m = pattern.search(content)
+    if not m:
+        return None, content.strip()
+    title = m.group(1).strip().strip('"').strip("'")
+    remainder = (content[: m.start()] + content[m.end():]).strip()
+    return (title or None), remainder
 
 
 def _clean_outline(text: str) -> str:
-    """Remove cercas de código que o modelo às vezes adiciona ao outline."""
+    """Remove cercas de código que o modelo às vezes coloca em torno do outline."""
     t = (text or "").strip()
     if t.startswith("```"):
         lines = [ln for ln in t.splitlines() if not ln.strip().startswith("```")]
@@ -112,35 +154,85 @@ def _clean_outline(text: str) -> str:
     return t
 
 
-async def generate_mindmap(client: AsyncOpenAI, model: str, text: str) -> str:
-    """Gera o outline (Markdown) de um mapa mental do documento (#36).
+# ---------------------------------------------------------------------------
+# API pública
+# ---------------------------------------------------------------------------
 
-    Determinístico do ponto de vista do produto: é uma chamada dedicada, não
-    depende de o modelo de chat espontaneamente emitir o bloco. Para textos
-    longos, resume antes (map-reduce) para caber e destacar a estrutura.
+
+async def summarize_documents(
+    client: AsyncOpenAI, model: str, docs: list[tuple[str, str]]
+) -> tuple[str | None, str]:
+    """Resumo multi-documento com contextos separados.
+
+    Retorna ``(title, content_markdown)``. Estratégia:
+      - se ``sum(len(text)) <= _SINGLE_CALL_MAX_CHARS``: 1 chamada só,
+        com todos os docs delimitados por ``<documento>``.
+      - senão: map-reduce por documento (cada um vira um resumo parcial;
+        depois uma chamada final sintetiza tudo).
     """
-    from ..config import get_settings
+    usable = [(f, t) for f, t in docs if t and t.strip()]
+    if not usable:
+        return None, ""
 
-    source = text
-    if len(text) > _MAP_CHUNK_CHARS:
-        source = await summarize_text(client, model, text)
-    cfg = get_settings().mindmap_prompt
-    prompt = cfg if cfg and "{content}" in cfg else _MINDMAP_PROMPT
-    outline = await _complete(client, model, prompt.format(content=source), max_tokens=900)
-    outline = _clean_outline(outline)
-    # Garante um título de nível 1 para o Markmap ancorar a raiz.
+    total = sum(len(t) for _, t in usable)
+    if total <= _SINGLE_CALL_MAX_CHARS:
+        prompt = _SUMMARY_INSTRUCTIONS.format(n_docs=len(usable)) + "\n\n" + _wrap_docs(usable)
+        raw = await _complete(client, model, prompt, max_tokens=1500)
+        return _extract_title(raw)
+
+    # Map: um resumo por documento (partindo cada doc grande em blocos).
+    partials: list[tuple[str, str]] = []
+    for filename, text in usable:
+        chunks = _split(text)
+        if len(chunks) == 1:
+            partial = await _complete(client, model, f"{_MAP_INSTRUCTIONS}\n\n{chunks[0]}", max_tokens=700)
+        else:
+            pieces: list[str] = []
+            for i, ch in enumerate(chunks, 1):
+                logger.info("map %s bloco %d/%d", filename, i, len(chunks))
+                pieces.append(await _complete(client, model, f"{_MAP_INSTRUCTIONS}\n\n{ch}", max_tokens=500))
+            joined = "\n\n".join(f"[Parte {i}] {p}" for i, p in enumerate(pieces, 1))
+            partial = await _complete(
+                client, model, f"{_MAP_INSTRUCTIONS}\n\n{joined}", max_tokens=700
+            )
+        partials.append((filename, partial))
+
+    # Reduce: síntese final com o mesmo formato canônico.
+    prompt = _REDUCE_INSTRUCTIONS.format(n_docs=len(partials)) + "\n\n" + _wrap_docs(partials)
+    raw = await _complete(client, model, prompt, max_tokens=1500)
+    return _extract_title(raw)
+
+
+async def generate_mindmap_from_documents(
+    client: AsyncOpenAI, model: str, docs: list[tuple[str, str]]
+) -> str:
+    """Mapa mental (outline markdown) multi-documento.
+
+    Para textos muito longos, usa como fonte os resumos parciais (map) do
+    passo de resumo, evitando estourar a janela.
+    """
+    usable = [(f, t) for f, t in docs if t and t.strip()]
+    if not usable:
+        return ""
+
+    total = sum(len(t) for _, t in usable)
+    if total <= _SINGLE_CALL_MAX_CHARS:
+        source = usable
+    else:
+        source = []
+        for filename, text in usable:
+            chunks = _split(text)
+            if len(chunks) == 1:
+                summary = await _complete(client, model, f"{_MAP_INSTRUCTIONS}\n\n{chunks[0]}", max_tokens=600)
+            else:
+                pieces = []
+                for i, ch in enumerate(chunks, 1):
+                    pieces.append(await _complete(client, model, f"{_MAP_INSTRUCTIONS}\n\n{ch}", max_tokens=400))
+                summary = "\n\n".join(pieces)
+            source.append((filename, summary))
+
+    prompt = _MINDMAP_INSTRUCTIONS.format(n_docs=len(source)) + "\n\n" + _wrap_docs(source)
+    outline = _clean_outline(await _complete(client, model, prompt, max_tokens=1200))
     if not any(ln.lstrip().startswith("# ") for ln in outline.splitlines()):
         outline = f"# Mapa mental\n{outline}"
     return outline
-
-
-async def consolidate_summaries(
-    client: AsyncOpenAI, model: str, per_doc: list[tuple[str, str]]
-) -> str:
-    """Resumo consolidado (#45): recebe [(nome, resumo), ...] e sintetiza um único."""
-    if not per_doc:
-        return ""
-    joined = "\n\n".join(
-        f"[Documento {i}: {name}]\n{summary}" for i, (name, summary) in enumerate(per_doc, 1)
-    )
-    return await _complete(client, model, _CONSOLIDATED_PROMPT.format(content=joined), max_tokens=1200)
