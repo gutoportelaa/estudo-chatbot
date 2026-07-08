@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import os
 import shutil
+import asyncio
 
 import pytest
 
 from app.config import get_settings
+from app.database import AsyncSessionLocal
+from app.models import Document
 from app.storage import get_storage
 from app.tools.extraction import (
     ExtractionResult,
@@ -159,9 +162,22 @@ def _auth(client, username="extr_user", password="123456"):
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
+def _doc_from_db(document_id: str) -> Document | None:
+    async def _go():
+        async with AsyncSessionLocal() as db:
+            return await db.get(Document, document_id)
+
+    return asyncio.run(_go())
+
+
 def test_extract_endpoint_persists_text_and_sets_status(client, storage_tmp):
     headers = _auth(client)
-    pdf = _native_pdf("Biologia celular: a mitocôndria é a usina da célula.")
+    text = (
+        "Biologia celular: a mitocôndria é a usina da célula.\n"
+        "Ela participa da respiração celular e ajuda a produzir ATP.\n"
+        "Esse material também explica organelas, membrana plasmática e citoplasma."
+    )
+    pdf = _native_pdf(text)
     up = client.post("/documents", headers=headers, files={"file": ("bio.pdf", pdf, "application/pdf")})
     assert up.status_code == 201
     doc_id = up.json()["id"]
@@ -211,3 +227,96 @@ def test_extract_other_users_document_is_404(client, storage_tmp):
     b = _auth(client, username="bob")
     r = client.post(f"/documents/{doc_id}/extract", headers=b)
     assert r.status_code == 404
+
+
+def test_extract_failure_marks_document_as_failed(client, storage_tmp, monkeypatch):
+    def _boom(*args, **kwargs):
+        raise RuntimeError("falha simulada")
+
+    monkeypatch.setattr("app.routers.documents.extract_pdf", _boom)
+
+    headers = _auth(client, username="extract_fail")
+    pdf = _native_pdf("Texto nativo suficiente para criar um documento valido de teste.")
+    up = client.post("/documents", headers=headers, files={"file": ("fail.pdf", pdf, "application/pdf")})
+    doc_id = up.json()["id"]
+
+    response = client.post(f"/documents/{doc_id}/extract", headers=headers)
+
+    assert response.status_code == 422
+    assert "Falha na extração" in response.json()["detail"]
+
+    docs = client.get("/documents", headers=headers).json()
+    assert docs[0]["id"] == doc_id
+    assert docs[0]["extraction_status"] == "failed"
+
+
+def test_extract_unreadable_pdf_marks_document_as_failed(client, storage_tmp):
+    headers = _auth(client, username="extract_unreadable")
+    invalid_pdf = b"%PDF-1.4\nisto passa na validacao inicial, mas nao abre\n%%EOF\n"
+    up = client.post(
+        "/documents",
+        headers=headers,
+        files={"file": ("broken.pdf", invalid_pdf, "application/pdf")},
+    )
+    doc_id = up.json()["id"]
+
+    response = client.post(f"/documents/{doc_id}/extract", headers=headers)
+
+    assert response.status_code == 422
+    assert "Falha" in response.json()["detail"]
+    assert client.get("/documents", headers=headers).json()[0]["extraction_status"] == "failed"
+
+
+def test_extract_failure_does_not_set_extracted_key_or_page_count(client, storage_tmp, monkeypatch):
+    def _boom(*args, **kwargs):
+        raise RuntimeError("falha simulada")
+
+    monkeypatch.setattr("app.routers.documents.extract_pdf", _boom)
+
+    headers = _auth(client, username="extract_fail_clean")
+    pdf = _native_pdf("Texto nativo suficiente para criar um documento valido de teste.")
+    up = client.post("/documents", headers=headers, files={"file": ("clean.pdf", pdf, "application/pdf")})
+    doc_id = up.json()["id"]
+
+    response = client.post(f"/documents/{doc_id}/extract", headers=headers)
+
+    assert response.status_code == 422
+    doc = _doc_from_db(doc_id)
+    assert doc is not None
+    assert doc.extraction_status == "failed"
+    assert doc.extracted_key is None
+    assert doc.page_count is None
+
+
+def test_extract_can_retry_after_failure(client, storage_tmp, monkeypatch):
+    from app.routers import documents
+
+    original_extract_pdf = documents.extract_pdf
+    calls = 0
+
+    def _fails_once(data, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("falha temporaria")
+        return original_extract_pdf(data, ocr=None)
+
+    monkeypatch.setattr("app.routers.documents.extract_pdf", _fails_once)
+
+    headers = _auth(client, username="extract_retry")
+    text = (
+        "Biologia celular: a mitocondria produz energia para a celula.\n"
+        "O texto possui conteudo suficiente para a extracao nativa.\n"
+        "A segunda tentativa deve concluir o processamento normalmente."
+    )
+    pdf = _native_pdf(text)
+    up = client.post("/documents", headers=headers, files={"file": ("retry.pdf", pdf, "application/pdf")})
+    doc_id = up.json()["id"]
+
+    first = client.post(f"/documents/{doc_id}/extract", headers=headers)
+    second = client.post(f"/documents/{doc_id}/extract", headers=headers)
+
+    assert first.status_code == 422
+    assert second.status_code == 200
+    assert second.json()["extraction_status"] == "done"
+    assert client.get("/documents", headers=headers).json()[0]["extraction_status"] == "done"

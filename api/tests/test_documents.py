@@ -77,3 +77,13 @@ def test_lista_apenas_documentos_do_usuario(client, storage_tmp):
 
     assert len(client.get("/documents", headers=h1).json()) == 1
     assert client.get("/documents", headers=h2).json() == []
+
+
+def test_index_document_rejeita_documento_nao_extraido(client, storage_tmp):
+    headers = _auth_headers(client, username="index_not_extracted")
+    doc_id = _upload(client, headers, name="material.pdf").json()["id"]
+
+    response = client.post(f"/documents/{doc_id}/index", headers=headers)
+
+    assert response.status_code == 409
+    assert "ainda" in response.json()["detail"]
