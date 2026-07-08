@@ -406,31 +406,47 @@ export async function fetchThumbnail(id: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
-// ---------- Resumos (#44 single / #45 consolidated) ----------
+// ---------- Resumos (async worker) ----------
+
+export type SummaryStatus = "pending" | "processing" | "done" | "failed";
 
 export interface SummaryItem {
   id: string;
-  kind: "single" | "consolidated";
-  llm_model: string;
-  content: string;
+  title: string | null;
+  status: SummaryStatus;
+  error: string | null;
+  llm_model: string | null;
+  content: string | null;
+  mindmap: string | null;
   document_ids: string[];
   created_at: string;
 }
 
-export async function generateSingleSummary(documentId: string): Promise<SummaryItem> {
-  return req<SummaryItem>(`/documents/${documentId}/summary`, { method: "POST" });
+export interface SummaryDetail extends SummaryItem {
+  documents: { id: string; filename: string }[];
 }
 
-export async function getSingleSummary(documentId: string): Promise<SummaryItem | null> {
-  return req<SummaryItem | null>(`/documents/${documentId}/summary`);
+export interface SummaryStatusPoll {
+  id: string;
+  status: SummaryStatus;
+  error: string | null;
+  title: string | null;
 }
 
-export async function generateMindmap(documentId: string): Promise<SummaryItem> {
-  return req<SummaryItem>(`/documents/${documentId}/mindmap`, { method: "POST" });
+export async function createSummary(documentIds: string[]): Promise<SummaryItem> {
+  return req<SummaryItem>("/summaries", {
+    method: "POST",
+    body: JSON.stringify({ document_ids: documentIds }),
+  });
 }
 
-export async function getMindmap(documentId: string): Promise<SummaryItem | null> {
-  return req<SummaryItem | null>(`/documents/${documentId}/mindmap`);
+export async function pollSummaries(ids: string[]): Promise<SummaryStatusPoll[]> {
+  if (ids.length === 0) return [];
+  const data = await req<unknown>("/summaries/status", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+  return Array.isArray(data) ? (data as SummaryStatusPoll[]) : [];
 }
 
 export async function listSummaries(): Promise<SummaryItem[]> {
@@ -438,11 +454,12 @@ export async function listSummaries(): Promise<SummaryItem[]> {
   return Array.isArray(data) ? (data as SummaryItem[]) : [];
 }
 
-export async function generateConsolidatedSummary(documentIds: string[]): Promise<SummaryItem> {
-  return req<SummaryItem>("/summaries/consolidated", {
-    method: "POST",
-    body: JSON.stringify({ document_ids: documentIds }),
-  });
+export async function getSummary(id: string): Promise<SummaryDetail> {
+  return req<SummaryDetail>(`/summaries/${id}`);
+}
+
+export async function deleteSummary(id: string): Promise<void> {
+  await req<void>(`/summaries/${id}`, { method: "DELETE" });
 }
 
 // ---------- Messages ----------

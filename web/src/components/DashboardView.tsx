@@ -19,15 +19,17 @@ interface Props {
   username: string;
   onNewChat: () => void;
   onOpenBiblioteca: () => void;
+  onOpenResumos: () => void;
   onOpenConsumo: () => void;
   onOpenProfile: () => void;
 }
 
-const KIND_LABEL: Record<SummaryItem["kind"], string> = {
-  single: "Documento",
-  consolidated: "Consolidado",
-  // "mindmap" pode aparecer no futuro; tratado com fallback abaixo.
-} as Record<SummaryItem["kind"], string>;
+const STATUS_LABEL: Record<SummaryItem["status"], string> = {
+  pending: "Na fila",
+  processing: "Processando",
+  done: "Pronto",
+  failed: "Falhou",
+};
 
 function fmtInt(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -39,6 +41,7 @@ export function DashboardView({
   username,
   onNewChat,
   onOpenBiblioteca,
+  onOpenResumos,
   onOpenConsumo,
   onOpenProfile,
 }: Props) {
@@ -143,24 +146,27 @@ export function DashboardView({
         <div className="dashboard-panel">
           <div className="dashboard-panel-head">
             <h3>Resumos recentes</h3>
-            <button className="btn-ghost" onClick={onOpenBiblioteca}>
-              Gerar
+            <button className="btn-ghost" onClick={onOpenResumos}>
+              Ver todos
             </button>
           </div>
           {summaries.length === 0 ? (
             <p className="dashboard-empty">
-              Nenhum resumo ainda. Abra um documento na Biblioteca e gere um resumo.
+              Nenhum resumo ainda. Selecione documentos na Biblioteca e clique em Gerar Resumo.
             </p>
           ) : (
             <ul className="dashboard-summlist">
               {summaries.map((s) => (
                 <li key={s.id} className="dashboard-summitem">
-                  <span className={`dashboard-summ-kind is-${s.kind}`}>
-                    {KIND_LABEL[s.kind] ?? s.kind}
+                  <span className={`dashboard-summ-kind is-${s.status}`}>
+                    {STATUS_LABEL[s.status]}
                   </span>
-                  <span className="dashboard-summ-preview" title={s.content}>
-                    {s.content.slice(0, 120)}
-                    {s.content.length > 120 ? "…" : ""}
+                  <span
+                    className="dashboard-summ-preview"
+                    title={s.title ?? s.content ?? ""}
+                  >
+                    {s.title?.trim() ||
+                      (s.content ? s.content.slice(0, 120) + (s.content.length > 120 ? "…" : "") : "Aguardando…")}
                   </span>
                 </li>
               ))}
