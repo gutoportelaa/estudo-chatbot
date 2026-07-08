@@ -18,6 +18,19 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis:
+    # Fila do Arq para jobs assíncronos (geração de resumos).
+    image: redis:7-alpine
+    container_name: thinkai-redis
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   api:
     build: ./api
     image: ghcr.io/gutoportelaa/estudo-chatbot-api:latest
@@ -25,8 +38,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+asyncpg://thinkai:${DB_PASSWORD:-thinkai}@db:5432/thinkai
+      REDIS_URL: redis://redis:6379/0
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
       LLM_MODEL: ${LLM_MODEL:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -49,8 +65,42 @@ services:
       HISTORY_SUMMARY_MAX_TOKENS: ${HISTORY_SUMMARY_MAX_TOKENS:-600}
       CORS_ORIGINS: "*"
       SYSTEM_PROMPT: ${SYSTEM_PROMPT:-Você é o ThinkAI, um assistente prestativo, claro e conciso. Atue como um assistente de estudos sobre a área de interesse do usuário, recomendando questões, referências e respondendo a dúvidas. Responda no mesmo idioma da pergunta. Quando o usuário pedir um mapa mental, mindmap, diagrama ou esquema, responda com um bloco de código de linguagem `markmap` contendo um outline em markdown (um título `#` central, `##` para ramos e itens `-` para folhas), com rótulos curtos.}
+    volumes:
+      # Compartilhado com o worker — ambos precisam ler/gravar os PDFs e o texto
+      # extraído no mesmo path (STORAGE_BACKEND=local). Em produção com S3, este
+      # volume vira redundante.
+      - documents-data:/app/data/documents
     ports:
       - "8000:8000"
+    restart: unless-stopped
+
+  worker:
+    # Consome a fila do Redis e executa os jobs de geração de resumo (Arq).
+    # Compartilha imagem e variáveis com a api — mesmo código, entrypoint diferente.
+    build: ./api
+    image: ghcr.io/gutoportelaa/estudo-chatbot-api:latest
+    container_name: thinkai-worker
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://thinkai:${DB_PASSWORD:-thinkai}@db:5432/thinkai
+      REDIS_URL: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      LLM_MODEL: ${LLM_MODEL:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-ollama}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+    volumes:
+      - documents-data:/app/data/documents
+    command: ["arq", "app.worker.WorkerSettings"]
     restart: unless-stopped
 
   web:
@@ -68,3 +118,5 @@ services:
 
 volumes:
   postgres-data:
+  redis-data:
+  documents-data:

@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     # Banco de dados
     database_url: str = "postgresql+asyncpg://thinkai:thinkai@localhost:5432/thinkai"
 
+    # Fila de jobs assíncronos (Arq/Redis) — usada para geração de resumos.
+    redis_url: str = "redis://localhost:6379/0"
+
     # Provedor LLM: gemini | groq | openrouter | ollama
     llm_provider: str = "gemini"
     llm_model: str = ""  # deixe vazio para usar o padrão do provedor
