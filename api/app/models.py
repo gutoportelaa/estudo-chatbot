@@ -165,7 +165,13 @@ class Document(Base):
 
 
 class Summary(Base):
-    """Resumo gerado por LLM — individual (1 doc) ou consolidado (N docs)."""
+    """Resumo gerado por LLM em job assíncrono (Arq).
+
+    Ciclo de vida: ``pending → processing → done | failed``. O worker
+    ``process_summary`` preenche ``title``, ``content``, ``mindmap`` e
+    ``llm_model`` e atualiza ``status``. A associação com os documentos-fonte
+    fica em ``summary_documents``.
+    """
 
     __tablename__ = "summaries"
 
@@ -173,11 +179,18 @@ class Summary(Base):
     user_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    # "single" (RF-004) | "consolidated" (RF-005).
-    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="single")
-    # Modelo/provedor que gerou o resumo (auditoria).
-    llm_model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Título curto sugerido pela LLM. Nulo até o worker rodar.
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Estado do job (o poll do front filtra por aqui).
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
+    # Mensagem de falha do worker (só em status="failed").
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Modelo/provedor que gerou o resumo (auditoria). Nulo até o worker rodar.
+    llm_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Resumo em markdown; nulo até status="done".
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Mapa mental em outline markdown; nulo até status="done".
+    mindmap: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     user: Mapped["User"] = relationship(back_populates="summaries")

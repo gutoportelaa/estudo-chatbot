@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  createSummary,
   deleteDocument,
-  generateConsolidatedSummary,
   listDocuments,
   type DocumentItem,
   type DocumentSort,
-  type SummaryItem,
 } from "../api/client";
 import { useUploadQueue } from "../hooks/useUploadQueue";
 import { DocumentCard } from "./DocumentCard";
@@ -14,6 +13,8 @@ import { UploadQueueList } from "./UploadQueueList";
 interface Props {
   /** Inicia uma nova conversa restrita aos documentos selecionados. */
   onStartConversation: (documentIds: string[]) => void | Promise<void>;
+  /** Dispara a geração de resumo dos documentos selecionados e navega para a aba Resumos. */
+  onGenerateSummary: (summaryId: string) => void;
 }
 
 const SORT_LABELS: Record<DocumentSort, string> = {
@@ -23,15 +24,14 @@ const SORT_LABELS: Record<DocumentSort, string> = {
   size: "Tamanho",
 };
 
-export function BibliotecaView({ onStartConversation }: Props) {
+export function BibliotecaView({ onStartConversation, onGenerateSummary }: Props) {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [sort, setSort] = useState<DocumentSort>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [consolidated, setConsolidated] = useState<SummaryItem | null>(null);
-  const [consolidating, setConsolidating] = useState(false);
-  const [consolidateError, setConsolidateError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -47,7 +47,6 @@ export function BibliotecaView({ onStartConversation }: Props) {
     void refresh();
   }, [refresh]);
 
-  // Fila de upload (concorrência 1): atualiza a grade ao concluir cada doc.
   const queue = useUploadQueue(async () => {
     await refresh();
   });
@@ -56,17 +55,20 @@ export function BibliotecaView({ onStartConversation }: Props) {
     [queue],
   );
 
-  const generateConsolidated = useCallback(async () => {
-    setConsolidating(true);
-    setConsolidateError(null);
+  const generateSummary = useCallback(async () => {
+    if (selected.size === 0) return;
+    setGenerating(true);
+    setSummaryError(null);
     try {
-      setConsolidated(await generateConsolidatedSummary([...selected]));
+      const summary = await createSummary([...selected]);
+      setSelected(new Set());
+      onGenerateSummary(summary.id);
     } catch (e) {
-      setConsolidateError(e instanceof Error ? e.message : "Falha ao gerar o resumo consolidado");
+      setSummaryError(e instanceof Error ? e.message : "Falha ao criar o resumo");
     } finally {
-      setConsolidating(false);
+      setGenerating(false);
     }
-  }, [selected]);
+  }, [selected, onGenerateSummary]);
 
   const toggle = (id: string) =>
     setSelected((cur) => {
@@ -87,8 +89,8 @@ export function BibliotecaView({ onStartConversation }: Props) {
   };
 
   const selectedList = docs.filter((d) => selected.has(d.id));
-  const selectedSize = selectedList.reduce((acc, d) => acc + d.size_bytes, 0);
-  const bigSelection = selectedSize > 20 * 1024 * 1024; // ~aviso de seleção grande
+  const notReady = selectedList.filter((d) => d.extraction_status !== "done");
+  const canSummarize = selected.size > 0 && notReady.length === 0 && !generating;
 
   return (
     <section
@@ -107,7 +109,7 @@ export function BibliotecaView({ onStartConversation }: Props) {
       <header className="biblioteca-header">
         <div>
           <h2>Biblioteca</h2>
-          <p className="biblioteca-sub">Seus documentos. Selecione um ou mais para conversar.</p>
+          <p className="biblioteca-sub">Seus documentos. Selecione um ou mais para conversar ou resumir.</p>
         </div>
         <div className="biblioteca-actions">
           <select
@@ -163,21 +165,26 @@ export function BibliotecaView({ onStartConversation }: Props) {
         <div className="biblioteca-selbar">
           <span>
             {selected.size} selecionado{selected.size > 1 ? "s" : ""}
-            {bigSelection ? " · seleção grande, a busca prioriza os trechos mais relevantes" : ""}
+            {notReady.length > 0
+              ? ` · ${notReady.length} sem texto extraído (aguarde)`
+              : ""}
           </span>
           <div>
             <button className="btn-ghost" onClick={() => setSelected(new Set())}>
               Limpar
             </button>
-            {selected.size >= 2 ? (
-              <button
-                className="btn-ghost"
-                onClick={() => void generateConsolidated()}
-                disabled={consolidating}
-              >
-                {consolidating ? "Resumindo…" : "Resumo consolidado"}
-              </button>
-            ) : null}
+            <button
+              className="btn-ghost"
+              onClick={() => void generateSummary()}
+              disabled={!canSummarize}
+              title={
+                notReady.length > 0
+                  ? "Aguarde a extração dos documentos selecionados"
+                  : "Gera resumo + mapa mental (assíncrono)"
+              }
+            >
+              {generating ? "Enviando…" : "Gerar Resumo"}
+            </button>
             <button
               className="btn-primary"
               onClick={() => void onStartConversation([...selected])}
@@ -188,25 +195,7 @@ export function BibliotecaView({ onStartConversation }: Props) {
         </div>
       ) : null}
 
-      {consolidated ? (
-        <div className="modal-backdrop" onClick={() => setConsolidated(null)}>
-          <div className="modal-content modal-content--wide" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Resumo consolidado</h2>
-              <button className="icon-btn" onClick={() => setConsolidated(null)} aria-label="Fechar">
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <p className="prefs-desc">
-                Síntese de {consolidated.document_ids.length} documentos ({consolidated.llm_model}).
-              </p>
-              <div className="doc-summary-body md">{consolidated.content}</div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {consolidateError ? <p className="biblioteca-busy">{consolidateError}</p> : null}
+      {summaryError ? <p className="biblioteca-busy">{summaryError}</p> : null}
     </section>
   );
 }

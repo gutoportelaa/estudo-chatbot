@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
@@ -79,6 +80,50 @@ def build_chat_client(settings) -> tuple[AsyncOpenAI, str]:
 def _sse(payload: str) -> str:
     """Emite um evento SSE com payload JSON: data: {"t": "..."}\n\n"""
     return f"data: {json.dumps({'t': payload})}\n\n"
+
+
+_MINDMAP_TRIGGERS = re.compile(
+    r"\b(mapa mental|mapa\s+mentais|mindmap|mind-map|esquema visual|diagrama)\b",
+    re.IGNORECASE,
+)
+# Padrão A — ```markdown|md ... ``` (linguagem errada)
+_MARKDOWN_FENCE = re.compile(r"```(markdown|md)\b(.*?)```", re.DOTALL)
+# Padrão B — ``` sem linguagem, com "markmap" como 1ª linha do conteúdo
+_BARE_FENCE_MARKMAP = re.compile(
+    r"```[ \t]*\n[ \t]*markmap[ \t]*\n(.*?)```", re.DOTALL
+)
+
+
+def _has_outline(body: str) -> bool:
+    return bool(
+        re.search(r"^\s*#\s+\S", body, re.MULTILINE)
+        and re.search(r"^(##\s+\S|-\s+\S)", body, re.MULTILINE)
+    )
+
+
+def _fix_markmap_fence(response: str, user_request: str) -> str:
+    """Normaliza fences de mapa mental para ```markmap.
+
+    Modelos pequenos (llama-3.1-8b) escrevem o rótulo errado (`markdown`, `md`)
+    ou colocam `markmap` como primeira linha do conteúdo em vez de linguagem
+    do fence. Aqui a gente corrige os dois padrões — apenas quando o usuário
+    pediu mapa mental e o bloco parece um outline (evita mexer em código
+    markdown legítimo).
+    """
+    if not _MINDMAP_TRIGGERS.search(user_request or ""):
+        return response
+
+    def _repl_lang(m: re.Match[str]) -> str:
+        body = m.group(2)
+        return f"```markmap{body}```" if _has_outline(body) else m.group(0)
+
+    def _repl_bare(m: re.Match[str]) -> str:
+        body = m.group(1)
+        return f"```markmap\n{body}```" if _has_outline(body) else m.group(0)
+
+    response = _MARKDOWN_FENCE.sub(_repl_lang, response)
+    response = _BARE_FENCE_MARKMAP.sub(_repl_bare, response)
+    return response
 
 
 async def _retrieve_rag_hits(db, *, user_id, query, settings, document_ids=None):
@@ -306,11 +351,12 @@ async def stream_openai_compatible(
         # Só grava a resposta do assistente quando houve texto (turnos que falharam
         # antes de qualquer token não poluem o histórico).
         if full_text:
+            persisted = _fix_markmap_fence(full_text, content)
             db.add(
                 Message(
                     session_id=session_id,
                     role="assistant",
-                    content=full_text,
+                    content=persisted,
                     sources=sources or None,
                     created_at=datetime.now(timezone.utc),
                 )

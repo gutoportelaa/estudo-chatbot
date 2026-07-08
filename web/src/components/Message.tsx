@@ -6,12 +6,35 @@ import type { MessageSource } from "../api/client";
 import { MindmapView } from "./MindmapView";
 import { QuoteIcon } from "./icons";
 
-// Renderiza blocos ```markmap como mapa mental interativo (#36); demais códigos
-// seguem o comportamento padrão.
+// Renderiza blocos ```markmap como mapa mental interativo (#36).
+// Modelos pequenos (llama-3.1-8b, etc.) erram o fence de 3 maneiras — a gente
+// aceita as três desde que o conteúdo pareça um outline (H1 + H2 ou lista):
+//   a) ```markmap (correto)
+//   b) ```markdown / ```md (troca de nome)
+//   c) ``` (sem lang) com "markmap" como 1ª linha do conteúdo
+const looksLikeMarkmapOutline = (text: string) =>
+  /^#\s+\S/m.test(text) && /^(##\s+\S|-\s+\S)/m.test(text);
+
+/** Devolve o outline pronto pra renderizar, ou null se o bloco não for mapa. */
+function extractMarkmap(className: string, text: string): string | null {
+  if (/\blanguage-markmap\b/.test(className)) return text;
+  if (/\blanguage-(markdown|md)\b/.test(className) && looksLikeMarkmapOutline(text)) {
+    return text;
+  }
+  // Fence sem linguagem que começa com "markmap" na 1ª linha do conteúdo.
+  if (!/\blanguage-\w+/.test(className)) {
+    const stripped = text.replace(/^\s*markmap\s*\n/, "");
+    if (stripped !== text && looksLikeMarkmapOutline(stripped)) return stripped;
+  }
+  return null;
+}
+
 const markdownComponents: Components = {
   code({ className, children, ...props }) {
-    if (/\blanguage-markmap\b/.test(className ?? "")) {
-      return <MindmapView markdown={String(children).trim()} />;
+    const text = String(children).trim();
+    const outline = extractMarkmap(className ?? "", text);
+    if (outline !== null) {
+      return <MindmapView markdown={outline} />;
     }
     return (
       <code className={className} {...props}>
@@ -40,9 +63,11 @@ function stageLabel(stage: string): string {
 export function Message({
   message,
   onOpenSource,
+  onOpenSources,
 }: {
   message: ChatMessage;
   onOpenSource?: (source: MessageSource) => void;
+  onOpenSources?: (sources: MessageSource[]) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -83,20 +108,31 @@ export function Message({
         </span>
       )}
       <div className="message-bubble">{body}</div>
-      {hasSources ? <ReferenceToggle sources={sources} onOpenSource={onOpenSource} /> : null}
+      {hasSources ? (
+        <ReferenceToggle
+          sources={sources}
+          onOpenSource={onOpenSource}
+          onOpenAll={() => onOpenSources?.(sources)}
+        />
+      ) : null}
     </div>
   );
 }
 
-/** Ícone lateral discreto que abre um popover com as referências da mensagem. */
+/** Ícone lateral discreto que abre um popover com as referências da mensagem.
+ * Um botão extra "Ver fontes" abre o painel lateral com todos os trechos em
+ * cards (fluxo do DocumentPanel informativo). */
 function ReferenceToggle({
   sources,
   onOpenSource,
+  onOpenAll,
 }: {
   sources: NonNullable<ChatMessage["sources"]>;
   onOpenSource?: (source: MessageSource) => void;
+  onOpenAll?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const hasRag = sources.some((s) => s.kind === "rag");
   return (
     <div className="msg-ref">
       <button
@@ -119,6 +155,18 @@ function ReferenceToggle({
               onOpenSource?.(s);
             }}
           />
+          {hasRag && onOpenAll ? (
+            <button
+              type="button"
+              className="msg-ref-open-all"
+              onClick={() => {
+                setOpen(false);
+                onOpenAll();
+              }}
+            >
+              Ver fontes no painel →
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

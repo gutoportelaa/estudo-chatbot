@@ -1,81 +1,25 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
-import { fetchModelName, getSessionDocuments } from "./api/client";
-import { ChatInput } from "./components/ChatInput";
-import { DocumentPanel } from "./components/DocumentPanel";
-import { Greeting } from "./components/Greeting";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
+import { AuthPage } from "./components/AuthPage";
+import { ContextInspector } from "./components/ContextInspector";
 import { Header } from "./components/Header";
-import { MessageList } from "./components/MessageList";
-import { PromptCards } from "./components/PromptCards";
-import { Sidebar } from "./components/Sidebar";
-import { useAuth } from "./hooks/useAuth";
-import { useChat } from "./hooks/useChat";
-import { useSessions } from "./hooks/useSessions";
-import { useTheme } from "./hooks/useTheme";
 import { PreferencesModal } from "./components/PreferencesModal";
 import { ProfileModal } from "./components/ProfileModal";
-import { ContextInspector } from "./components/ContextInspector";
-import { ConsumoView } from "./components/ConsumoView";
-import { MemoryBadge } from "./components/MemoryBadge";
-import { BibliotecaView } from "./components/BibliotecaView";
-import { DashboardView } from "./components/DashboardView";
+import { AppUIProvider, useAppUI } from "./context/AppUIContext";
+import { useAuth } from "./hooks/useAuth";
+import { useTheme } from "./hooks/useTheme";
+import { AppLayout } from "./layouts/AppLayout";
+import { ChatLayout } from "./layouts/ChatLayout";
+import { AutoCreateChatSession } from "./pages/AutoCreateChatSession";
+import { BibliotecaPage } from "./pages/BibliotecaPage";
+import { ChatPage } from "./pages/ChatPage";
+import { ConsumoPage } from "./pages/ConsumoPage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { ResumosPage } from "./pages/ResumosPage";
+import { SummaryDetailPage } from "./pages/SummaryDetailPage";
 
 export default function App() {
   const { theme, toggleTheme, colorStart, colorEnd, setColorStart, setColorEnd } = useTheme();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [prefsOpen, setPrefsOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
-  const [view, setView] = useState<"dashboard" | "chat" | "biblioteca" | "consumo">("dashboard");
-  const [modelName, setModelName] = useState("");
-
-  useEffect(() => {
-    void fetchModelName().then(setModelName);
-  }, []);
   const auth = useAuth();
-  const sessions = useSessions(auth.user?.id ?? null, auth.isAuthenticated);
-  const sessionId = sessions.activeSessionId;
-  const { messages, isStreaming, send } = useChat(sessionId);
-  const [draft, setDraft] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
-
-  // Documentos escopados à conversa atual (Biblioteca / clipe do chat).
-  const [attachedIds, setAttachedIds] = useState<string[]>([]);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [webSearch, setWebSearch] = useState(false);
-  // Fonte de RAG clicada numa citação: abre o painel no documento/chunk.
-  const [sourceFocus, setSourceFocus] = useState<
-    { documentId: string; chunkIndex: number; snippet?: string; page?: number | null } | null
-  >(null);
-
-  useEffect(() => {
-    if (!sessionId) {
-      setAttachedIds([]);
-      return;
-    }
-    let active = true;
-    getSessionDocuments(sessionId)
-      .then((ids) => active && setAttachedIds(ids))
-      .catch(() => active && setAttachedIds([]));
-    return () => {
-      active = false;
-    };
-  }, [sessionId]);
-
-  // Título é gerado no backend no 1º turno; ao encerrar o streaming, se a sessão
-  // ainda estiver sem título (ex.: conversa iniciada pela Biblioteca), sincroniza
-  // a lista para o título aparecer no sidebar.
-  const prevStreaming = useRef(false);
-  useEffect(() => {
-    const finished = prevStreaming.current && !isStreaming;
-    prevStreaming.current = isStreaming;
-    if (!finished) return;
-    const current = sessions.sessions.find((s) => s.id === sessionId);
-    if (current && !current.title?.trim()) void sessions.refresh();
-  }, [isStreaming, sessionId, sessions]);
-
-  const hasConversation = messages.length > 0;
 
   if (auth.isLoading) {
     return (
@@ -94,247 +38,120 @@ export default function App() {
   }
 
   if (!auth.isAuthenticated || !auth.user) {
-    const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!username.trim() || !password.trim()) return;
-      try {
-        if (authMode === "signin") {
-          await auth.login(username.trim(), password);
-        } else {
-          await auth.register(username.trim(), password);
-        }
-        setPassword("");
-      } catch {
-        // error shown via auth.error
-      }
-    };
-
     return (
-      <div className="app">
-        <div className="window">
-          <Header theme={theme} onToggleTheme={toggleTheme} />
-          <main className="content is-empty">
-            <div className="welcome">
-              <div className="orb" />
-              <h1 className="greeting-title">Entre para continuar</h1>
-              <p className="greeting-subtitle">
-                Chatbot multiusuário com sessões separadas por conta.
-              </p>
-
-              <form className="auth-card" onSubmit={submitAuth}>
-                <div className="auth-mode">
-                  <button
-                    type="button"
-                    className={authMode === "signin" ? "auth-tab is-active" : "auth-tab"}
-                    onClick={() => setAuthMode("signin")}
-                  >
-                    Entrar
-                  </button>
-                  <button
-                    type="button"
-                    className={authMode === "signup" ? "auth-tab is-active" : "auth-tab"}
-                    onClick={() => setAuthMode("signup")}
-                  >
-                    Criar conta
-                  </button>
-                </div>
-
-                <label className="auth-field">
-                  <span>Usuário</span>
-                  <input
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    autoComplete="username"
-                    placeholder="Digite seu usuário"
-                  />
-                </label>
-
-                <label className="auth-field">
-                  <span>Senha</span>
-                  <input
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    type="password"
-                    autoComplete={authMode === "signin" ? "current-password" : "new-password"}
-                    placeholder="••••••••"
-                  />
-                </label>
-
-                {auth.error ? <p className="auth-error">{auth.error}</p> : null}
-
-                <button className="auth-submit" type="submit" disabled={auth.isLoading}>
-                  {auth.isLoading ? "Aguarde..." : authMode === "signin" ? "Entrar" : "Criar e entrar"}
-                </button>
-              </form>
-            </div>
-          </main>
-        </div>
-      </div>
+      <AuthPage
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        isLoading={auth.isLoading}
+        error={auth.error}
+        onSignIn={auth.login}
+        onSignUp={auth.register}
+      />
     );
   }
 
-  return (
-    <div className="app">
-      <Sidebar
-        sessions={sessions.sessions}
-        activeSessionId={sessionId}
-        isOpen={sidebarOpen}
-        onSelect={(id) => {
-          setView("chat");
-          sessions.setActiveSessionId(id);
-        }}
-        onNew={() => {
-          setView("chat");
-          void sessions.createNewSession();
-        }}
-        onRename={async (id, currentTitle) => {
-          const currentLabel = currentTitle?.trim() || "Conversa sem título";
-          const nextTitle = window.prompt("Novo nome da conversa", currentLabel);
-          if (nextTitle === null) return;
-          const trimmed = nextTitle.trim();
-          if (!trimmed) return;
-          await sessions.updateSessionTitle(id, trimmed);
-        }}
-        onDelete={async (id) => {
-          const sessionTitle = sessions.sessions.find((session) => session.id === id)?.title?.trim();
-          const label = sessionTitle || "esta conversa";
-          if (!window.confirm(`Apagar ${label}? Essa ação não pode ser desfeita.`)) return;
-          await sessions.removeSession(id);
-        }}
-        onOpenPreferences={() => setPrefsOpen(true)}
-        onOpenProfile={() => setProfileOpen(true)}
-        onOpenContext={() => setContextOpen(true)}
-        onOpenUsage={() => setView("consumo")}
-        onOpenBiblioteca={() => setView("biblioteca")}
-        onOpenDashboard={() => setView("dashboard")}
-        bibliotecaActive={view === "biblioteca"}
-        consumoActive={view === "consumo"}
-        dashboardActive={view === "dashboard"}
-      />
+  const layoutProps = {
+    theme,
+    onToggleTheme: toggleTheme,
+    isAuthenticated: auth.isAuthenticated,
+    userLabel: auth.user.username,
+    onLogout: auth.logout,
+  };
 
+  return (
+    <AppUIProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<AppLayout {...layoutProps} />}>
+            <Route index element={<Navigate to="/inicio" replace />} />
+            <Route
+              path="/inicio"
+              element={
+                <DashboardPage
+                  username={auth.user.username}
+                  isAuthenticated={auth.isAuthenticated}
+                />
+              }
+            />
+            <Route
+              path="/biblioteca"
+              element={<BibliotecaPage isAuthenticated={auth.isAuthenticated} />}
+            />
+            <Route path="/resumos" element={<ResumosPage />} />
+            <Route path="/resumos/:summaryId" element={<SummaryDetailPage />} />
+            <Route path="/consumo" element={<ConsumoPage />} />
+          </Route>
+
+          <Route element={<ChatLayout {...layoutProps} />}>
+            <Route
+              path="/chat"
+              element={<AutoCreateChatSession isAuthenticated={auth.isAuthenticated} />}
+            />
+            <Route path="/chat/:sessionId" element={<ChatPage />} />
+          </Route>
+
+          <Route path="*" element={<Navigate to="/inicio" replace />} />
+        </Routes>
+
+        <GlobalModals
+          user={auth.user}
+          onUserUpdated={auth.setUser}
+          colorStart={colorStart}
+          colorEnd={colorEnd}
+          setColorStart={setColorStart}
+          setColorEnd={setColorEnd}
+        />
+      </BrowserRouter>
+    </AppUIProvider>
+  );
+}
+
+interface ModalsProps {
+  user: NonNullable<ReturnType<typeof useAuth>["user"]>;
+  onUserUpdated: ReturnType<typeof useAuth>["setUser"];
+  colorStart: string;
+  colorEnd: string;
+  setColorStart: (v: string) => void;
+  setColorEnd: (v: string) => void;
+}
+
+/** Modais globais montados uma vez, controlados pelo AppUIContext. O ContextInspector
+ * só existe quando estamos numa rota /chat/:sessionId — lê do URL. */
+function GlobalModals({
+  user,
+  onUserUpdated,
+  colorStart,
+  colorEnd,
+  setColorStart,
+  setColorEnd,
+}: ModalsProps) {
+  const ui = useAppUI();
+  return (
+    <>
       <PreferencesModal
-        isOpen={prefsOpen}
-        onClose={() => setPrefsOpen(false)}
+        isOpen={ui.preferencesOpen}
+        onClose={ui.closePreferences}
         colorStart={colorStart}
         colorEnd={colorEnd}
         setColorStart={setColorStart}
         setColorEnd={setColorEnd}
       />
-
       <ProfileModal
-        isOpen={profileOpen}
-        user={auth.user}
-        onClose={() => setProfileOpen(false)}
-        onUpdated={(u) => auth.setUser(u)}
+        isOpen={ui.profileOpen}
+        user={user}
+        onClose={ui.closeProfile}
+        onUpdated={onUserUpdated}
       />
-
-      {contextOpen && sessionId ? (
-        <ContextInspector sessionId={sessionId} onClose={() => setContextOpen(false)} />
-      ) : null}
-
-      <div className="window">
-        <Header
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          onToggleSidebar={() => setSidebarOpen((o) => !o)}
-          userLabel={auth.user.username}
-          onLogout={auth.logout}
-        />
-
-        <div className={`window-body${panelOpen && view === "chat" ? " has-panel" : ""}`}>
-          <div className="chat-column">
-            {view === "dashboard" ? (
-              <main className="content is-biblioteca">
-                <DashboardView
-                  username={auth.user.username}
-                  onNewChat={() => {
-                    setView("chat");
-                    void sessions.createNewSession();
-                  }}
-                  onOpenBiblioteca={() => setView("biblioteca")}
-                  onOpenConsumo={() => setView("consumo")}
-                  onOpenProfile={() => setProfileOpen(true)}
-                />
-              </main>
-            ) : view === "consumo" ? (
-              <main className="content is-biblioteca">
-                <ConsumoView />
-              </main>
-            ) : view === "biblioteca" ? (
-              <main className="content is-biblioteca">
-                <BibliotecaView
-                  onStartConversation={async (documentIds) => {
-                    await sessions.createNewSession(documentIds);
-                    setView("chat");
-                  }}
-                />
-              </main>
-            ) : (
-              <main className={`content ${hasConversation ? "is-chat" : "is-empty"}`}>
-                {hasConversation ? (
-                  <>
-                    <MemoryBadge sessionId={sessionId} refreshKey={messages.length} />
-                    <MessageList
-                      messages={messages}
-                      onOpenSource={(s) => {
-                        if (s.kind !== "rag" || !s.document_id) return;
-                        setSourceFocus({
-                          documentId: s.document_id,
-                          chunkIndex: s.chunk_index ?? 0,
-                          snippet: s.snippet,
-                          page: s.page,
-                        });
-                        setPanelOpen(true);
-                      }}
-                    />
-                  </>
-                ) : (
-                  <div className="welcome">
-                    <Greeting username={auth.user.username} />
-                    <PromptCards onPick={(p) => setDraft(p)} />
-                  </div>
-                )}
-              </main>
-            )}
-
-            {view === "chat" ? (
-              <footer className="composer">
-                <ChatInput
-                  value={draft}
-                  onChange={setDraft}
-                  onSend={(text) => {
-                    setDraft("");
-                    send(text, { webSearch });
-                  }}
-                  disabled={isStreaming || !sessionId}
-                  modelName={modelName}
-                  onOpenAttach={() => setPanelOpen((o) => !o)}
-                  attachedCount={attachedIds.length}
-                  webSearch={webSearch}
-                  onToggleWebSearch={() => setWebSearch((v) => !v)}
-                />
-                <div className="composer-footer">
-                  <span>O ThinkAI pode cometer erros. Verifique as respostas.</span>
-                  <span className="hint">
-                    Use <kbd>shift + return</kbd> para nova linha
-                  </span>
-                </div>
-              </footer>
-            ) : null}
-          </div>
-
-          {panelOpen && view === "chat" ? (
-            <DocumentPanel
-              sessionId={sessionId}
-              attachedIds={attachedIds}
-              onAttachedChange={setAttachedIds}
-              onClose={() => setPanelOpen(false)}
-              focus={sourceFocus}
-              onFocusHandled={() => setSourceFocus(null)}
-            />
-          ) : null}
-        </div>
-      </div>
-    </div>
+      <Routes>
+        <Route path="/chat/:sessionId" element={<ContextInspectorGate />} />
+      </Routes>
+    </>
   );
+}
+
+function ContextInspectorGate() {
+  const ui = useAppUI();
+  const { sessionId } = useParams<{ sessionId: string }>();
+  if (!ui.contextOpen || !sessionId) return null;
+  return <ContextInspector sessionId={sessionId} onClose={ui.closeContext} />;
 }

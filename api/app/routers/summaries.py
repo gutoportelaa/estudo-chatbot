@@ -1,21 +1,24 @@
-"""Rotas de resumos de documentos via LLM (issues #44 single / #45 consolidated)."""
+"""Rotas de resumos assíncronos (Arq worker).
+
+O fluxo é: front chama ``POST /summaries`` com uma lista de ``document_ids``.
+A rota cria um Summary em ``status='pending'`` e enfileira o job. O worker
+processa e atualiza o registro. O front acompanha com ``POST /summaries/status``
+(poll) até virar ``done`` ou ``failed``, então abre a view de detalhamento
+via ``GET /summaries/{id}``.
+"""
 
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from ..auth import get_current_user
-from ..config import get_settings
 from ..database import get_db
-from ..llm import build_chat_client
+from ..jobs import enqueue_summary
 from ..models import Document, Summary, SummaryDocument, User
-from ..storage import get_storage
-from ..tools.summarize import consolidate_summaries, generate_mindmap, summarize_text
 
 logger = logging.getLogger("thinkai.summaries")
 
@@ -25,187 +28,114 @@ router = APIRouter(tags=["summaries"])
 def _to_dict(s: Summary, document_ids: list[str]) -> dict:
     return {
         "id": s.id,
-        "kind": s.kind,
+        "title": s.title,
+        "status": s.status,
+        "error": s.error,
         "llm_model": s.llm_model,
         "content": s.content,
+        "mindmap": s.mindmap,
         "document_ids": document_ids,
         "created_at": s.created_at.isoformat(),
     }
 
 
-async def _owned_extracted_docs(
-    db: AsyncSession, user_id: str, document_ids: list[str]
-) -> list[Document]:
-    """Valida posse e extração; retorna os documentos na ordem pedida."""
-    rows = (
-        await db.execute(
-            select(Document).where(Document.id.in_(document_ids), Document.user_id == user_id)
-        )
-    ).scalars().all()
-    by_id = {d.id: d for d in rows}
-    missing = [d for d in document_ids if d not in by_id]
+async def _document_ids_of(db: AsyncSession, summary_id: str) -> list[str]:
+    return list(
+        (
+            await db.execute(
+                select(SummaryDocument.document_id).where(
+                    SummaryDocument.summary_id == summary_id
+                )
+            )
+        ).scalars()
+    )
+
+
+class CreateSummaryBody(BaseModel):
+    document_ids: list[str]
+
+
+@router.post("/summaries", status_code=status.HTTP_202_ACCEPTED)
+async def create_summary(
+    body: CreateSummaryBody,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Cria um Summary em ``pending`` e enfileira o job.
+
+    Valida posse e exige extração de texto de cada documento (retorna 409 se
+    algum ainda estiver ``pending``/``failed`` na extração).
+    """
+    doc_ids = list(dict.fromkeys(body.document_ids))
+    if not doc_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Selecione pelo menos 1 documento")
+
+    docs = list(
+        (
+            await db.execute(
+                select(Document).where(
+                    Document.id.in_(doc_ids), Document.user_id == current_user.id
+                )
+            )
+        ).scalars()
+    )
+    owned = {d.id for d in docs}
+    missing = [d for d in doc_ids if d not in owned]
     if missing:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Documentos não encontrados: {missing}")
-    docs = [by_id[d] for d in document_ids]
     not_ready = [d.filename for d in docs if d.extraction_status != "done" or not d.extracted_key]
     if not_ready:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             f"Extraia o texto antes de resumir: {not_ready}",
         )
-    return docs
 
-
-async def _load_text(doc: Document) -> str:
-    data = await run_in_threadpool(get_storage().load, doc.extracted_key)
-    return data.decode("utf-8")
-
-
-async def _persist_summary(
-    db: AsyncSession, user_id: str, kind: str, model: str, content: str, doc_ids: list[str]
-) -> Summary:
-    summary = Summary(user_id=user_id, kind=kind, llm_model=model, content=content)
+    summary = Summary(user_id=current_user.id, status="pending")
     db.add(summary)
     await db.flush()
     for d in doc_ids:
         db.add(SummaryDocument(summary_id=summary.id, document_id=d))
     await db.commit()
     await db.refresh(summary)
-    return summary
 
-
-@router.post("/documents/{document_id}/summary")
-async def create_single_summary(
-    document_id: str,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
-    """Gera (e persiste) o resumo de um único documento (#44)."""
-    settings = get_settings()
-    (doc,) = await _owned_extracted_docs(db, current_user.id, [document_id])
-    text = await _load_text(doc)
-    client, model = build_chat_client(settings)
     try:
-        content = await summarize_text(client, model, text)
-    except Exception as exc:  # erro do LLM — não quebra, reporta claro
-        logger.exception("Falha ao resumir o documento %s", document_id)
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Falha ao gerar o resumo: {exc}")
-    if not content:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Documento sem texto para resumir")
-    summary = await _persist_summary(db, current_user.id, "single", model, content, [doc.id])
-    return _to_dict(summary, [doc.id])
+        await enqueue_summary(summary.id)
+    except Exception:
+        # Se a fila estiver indisponível, marca já como failed pra não deixar o
+        # front no polling infinito. Um retry manual (delete + recreate) resolve.
+        logger.exception("Falha ao enfileirar summary %s", summary.id)
+        summary.status = "failed"
+        summary.error = "Fila indisponível — tente novamente."
+        await db.commit()
+
+    return _to_dict(summary, doc_ids)
 
 
-@router.get("/documents/{document_id}/summary")
-async def get_single_summary(
-    document_id: str,
+class PollSummariesBody(BaseModel):
+    ids: list[str]
+
+
+@router.post("/summaries/status")
+async def poll_summaries(
+    body: PollSummariesBody,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict | None:
-    """Retorna o resumo single mais recente do documento (ou 204 se não houver)."""
-    doc = await db.get(Document, document_id)
-    if not doc or doc.user_id != current_user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
-    row = (
+) -> list[dict]:
+    """Status atual dos summaries pedidos (poll do front, a cada 3s)."""
+    ids = list(dict.fromkeys(body.ids))
+    if not ids:
+        return []
+    rows = (
         await db.execute(
-            select(Summary)
-            .join(SummaryDocument, SummaryDocument.summary_id == Summary.id)
-            .where(SummaryDocument.document_id == document_id, Summary.kind == "single")
-            .order_by(Summary.created_at.desc())
-            .limit(1)
+            select(Summary).where(
+                Summary.id.in_(ids), Summary.user_id == current_user.id
+            )
         )
-    ).scalar_one_or_none()
-    if not row:
-        return None
-    return _to_dict(row, [document_id])
-
-
-@router.post("/documents/{document_id}/mindmap")
-async def create_mindmap(
-    document_id: str,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
-    """Gera (e persiste) o mapa mental de um documento como outline Markdown (#36)."""
-    settings = get_settings()
-    (doc,) = await _owned_extracted_docs(db, current_user.id, [document_id])
-    text = await _load_text(doc)
-    client, model = build_chat_client(settings)
-    try:
-        content = await generate_mindmap(client, model, text)
-    except Exception as exc:
-        logger.exception("Falha ao gerar mapa mental de %s", document_id)
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Falha ao gerar o mapa mental: {exc}")
-    if not content:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Documento sem texto para o mapa")
-    summary = await _persist_summary(db, current_user.id, "mindmap", model, content, [doc.id])
-    return _to_dict(summary, [doc.id])
-
-
-@router.get("/documents/{document_id}/mindmap")
-async def get_mindmap(
-    document_id: str,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict | None:
-    """Retorna o mapa mental mais recente do documento (ou 204 se não houver)."""
-    doc = await db.get(Document, document_id)
-    if not doc or doc.user_id != current_user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
-    row = (
-        await db.execute(
-            select(Summary)
-            .join(SummaryDocument, SummaryDocument.summary_id == Summary.id)
-            .where(SummaryDocument.document_id == document_id, Summary.kind == "mindmap")
-            .order_by(Summary.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    return _to_dict(row, [document_id]) if row else None
-
-
-class ConsolidatedBody(BaseModel):
-    document_ids: list[str]
-
-
-@router.post("/summaries/consolidated")
-async def create_consolidated_summary(
-    body: ConsolidatedBody,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
-    """Resumo consolidado de múltiplos documentos (#45): resumo por doc + síntese."""
-    ids = list(dict.fromkeys(body.document_ids))
-    if len(ids) < 2:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Selecione ao menos 2 documentos")
-    settings = get_settings()
-    docs = await _owned_extracted_docs(db, current_user.id, ids)
-    client, model = build_chat_client(settings)
-
-    try:
-        per_doc: list[tuple[str, str]] = []
-        for doc in docs:
-            # Reaproveita o resumo single mais recente, se existir; senão gera.
-            existing = (
-                await db.execute(
-                    select(Summary.content)
-                    .join(SummaryDocument, SummaryDocument.summary_id == Summary.id)
-                    .where(SummaryDocument.document_id == doc.id, Summary.kind == "single")
-                    .order_by(Summary.created_at.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            summary = existing or await summarize_text(client, model, await _load_text(doc))
-            per_doc.append((doc.filename, summary))
-        content = await consolidate_summaries(client, model, per_doc)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Falha ao consolidar resumos")
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Falha ao gerar o resumo consolidado: {exc}")
-
-    summary = await _persist_summary(db, current_user.id, "consolidated", model, content, ids)
-    return _to_dict(summary, ids)
+    ).scalars().all()
+    return [
+        {"id": s.id, "status": s.status, "error": s.error, "title": s.title}
+        for s in rows
+    ]
 
 
 @router.get("/summaries")
@@ -213,18 +143,58 @@ async def list_summaries(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[dict]:
-    """Lista os resumos do usuário (mais recentes primeiro), com os docs de origem."""
+    """Lista os resumos do usuário, mais recentes primeiro."""
     rows = (
         await db.execute(
-            select(Summary).where(Summary.user_id == current_user.id).order_by(Summary.created_at.desc())
+            select(Summary)
+            .where(Summary.user_id == current_user.id)
+            .order_by(Summary.created_at.desc())
         )
     ).scalars().all()
     out = []
     for s in rows:
-        doc_ids = (
-            await db.execute(
-                select(SummaryDocument.document_id).where(SummaryDocument.summary_id == s.id)
-            )
-        ).scalars().all()
-        out.append(_to_dict(s, list(doc_ids)))
+        doc_ids = await _document_ids_of(db, s.id)
+        out.append(_to_dict(s, doc_ids))
     return out
+
+
+@router.get("/summaries/{summary_id}")
+async def get_summary(
+    summary_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Detalhe completo de um resumo (view de detalhamento).
+
+    Inclui ``documents = [{id, filename}]`` pra UI renderizar os chips sem
+    outra requisição.
+    """
+    summary = await db.get(Summary, summary_id)
+    if not summary or summary.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Resumo não encontrado")
+    doc_ids = await _document_ids_of(db, summary_id)
+    by_id: dict[str, str] = {}
+    if doc_ids:
+        rows = await db.execute(
+            select(Document.id, Document.filename).where(Document.id.in_(doc_ids))
+        )
+        by_id = dict(rows.all())
+    payload = _to_dict(summary, doc_ids)
+    payload["documents"] = [
+        {"id": d, "filename": by_id.get(d, "documento")} for d in doc_ids
+    ]
+    return payload
+
+
+@router.delete("/summaries/{summary_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_summary(
+    summary_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    summary = await db.get(Summary, summary_id)
+    if not summary or summary.user_id != current_user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Resumo não encontrado")
+    await db.delete(summary)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

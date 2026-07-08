@@ -18,6 +18,19 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis:
+    # Fila do Arq para jobs assíncronos (geração de resumos).
+    image: redis:7-alpine
+    container_name: thinkai-redis
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   api:
     build: ./api
     image: ghcr.io/gutoportelaa/estudo-chatbot-api:latest
@@ -25,8 +38,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+asyncpg://thinkai:${DB_PASSWORD:-thinkai}@db:5432/thinkai
+      REDIS_URL: redis://redis:6379/0
       LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
       LLM_MODEL: ${LLM_MODEL:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -48,9 +64,43 @@ services:
       HISTORY_SUMMARIZE_AFTER_MESSAGES: ${HISTORY_SUMMARIZE_AFTER_MESSAGES:-6}
       HISTORY_SUMMARY_MAX_TOKENS: ${HISTORY_SUMMARY_MAX_TOKENS:-600}
       CORS_ORIGINS: "*"
-      SYSTEM_PROMPT: ${SYSTEM_PROMPT:-Você é o ThinkAI, um assistente prestativo, claro e conciso. Atue como um assistente de estudos sobre a área de interesse do usuário, recomendando questões, referências e respondendo a dúvidas. Responda no mesmo idioma da pergunta. Quando o usuário pedir um mapa mental, mindmap, diagrama ou esquema, responda com um bloco de código de linguagem `markmap` contendo um outline em markdown (um título `#` central, `##` para ramos e itens `-` para folhas), com rótulos curtos.}
+      SYSTEM_PROMPT: '${SYSTEM_PROMPT:-Você é o ThinkAI, assistente de estudos claro e conciso. Recomende questões, referências e responda dúvidas. Responda no mesmo idioma da pergunta. Use markdown natural (listas, títulos, negrito). REGRA SOBRE MAPAS MENTAIS. CASO 1 - o usuário PEDIU (usou "mapa mental", "mindmap", "esquema visual" ou "diagrama"): gere o mapa SIM, sem questionar, sem recusar, sem pedir confirmação. Se o pedido tiver mais de uma tarefa (ex.: "faça um resumo e gere um mapa mental"), faça as duas coisas na mesma resposta. CASO 2 - o usuário NÃO usou esses termos: NÃO gere mapa por conta própria (nem como complemento, nem como fecho, nem como resumo visual). FORMATO do mapa quando for gerar: um bloco de código cuja linguagem, escrita logo após as três crases, seja EXATAMENTE a palavra `markmap` (m-a-r-k-m-a-p, com M no meio - JAMAIS `markdown`, JAMAIS `md`). Dentro do bloco, um outline em markdown com um único `#` como tópico central, `##` para ramos, itens `-` para folhas (aninháveis com indentação), rótulos curtos.}'
+    volumes:
+      # Compartilhado com o worker — ambos precisam ler/gravar os PDFs e o texto
+      # extraído no mesmo path (STORAGE_BACKEND=local). Em produção com S3, este
+      # volume vira redundante.
+      - documents-data:/app/data/documents
     ports:
       - "8000:8000"
+    restart: unless-stopped
+
+  worker:
+    # Consome a fila do Redis e executa os jobs de geração de resumo (Arq).
+    # Compartilha imagem e variáveis com a api — mesmo código, entrypoint diferente.
+    build: ./api
+    image: ghcr.io/gutoportelaa/estudo-chatbot-api:latest
+    container_name: thinkai-worker
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://thinkai:${DB_PASSWORD:-thinkai}@db:5432/thinkai
+      REDIS_URL: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      LLM_MODEL: ${LLM_MODEL:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-ollama}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+    volumes:
+      - documents-data:/app/data/documents
+    command: ["arq", "app.worker.WorkerSettings"]
     restart: unless-stopped
 
   web:
@@ -68,3 +118,5 @@ services:
 
 volumes:
   postgres-data:
+  redis-data:
+  documents-data:

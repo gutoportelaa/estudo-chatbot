@@ -1,91 +1,92 @@
-import { useState } from "react";
-import type { AuthState } from "../hooks/useAuth";
-import { LogoIcon } from "./icons";
+import { type FormEvent, useState } from "react";
+import { Header } from "./Header";
+import type { Theme } from "../hooks/useTheme";
 
 interface Props {
-  auth: AuthState;
+  theme: Theme;
+  onToggleTheme: () => void;
+  isLoading: boolean;
+  error: string | null;
+  onSignIn: (username: string, password: string) => Promise<unknown>;
+  onSignUp: (username: string, password: string) => Promise<unknown>;
 }
 
-export function AuthPage({ auth }: Props) {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+export function AuthPage({ theme, onToggleTheme, isLoading, error, onSignIn, onSignUp }: Props) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (!username.trim() || !password.trim()) return;
-    setError(null);
-    setLoading(true);
     try {
-      if (mode === "login") {
-        await auth.login(username.trim(), password);
-      } else {
-        await auth.register(username.trim(), password);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro inesperado");
-    } finally {
-      setLoading(false);
+      if (mode === "signin") await onSignIn(username.trim(), password);
+      else await onSignUp(username.trim(), password);
+      setPassword("");
+    } catch {
+      /* erro renderizado via prop */
     }
   };
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-brand">
-          <LogoIcon />
-          <span>ThinkAI</span>
-        </div>
+    <div className="app">
+      <div className="window">
+        <Header theme={theme} onToggleTheme={onToggleTheme} />
+        <main className="content is-empty">
+          <div className="welcome">
+            <div className="orb" />
+            <h1 className="greeting-title">Entre para continuar</h1>
+            <p className="greeting-subtitle">
+              Chatbot multiusuário com sessões separadas por conta.
+            </p>
 
-        <div className="auth-tabs">
-          <button
-            className={`auth-tab ${mode === "login" ? "active" : ""}`}
-            onClick={() => { setMode("login"); setError(null); }}
-          >
-            Entrar
-          </button>
-          <button
-            className={`auth-tab ${mode === "signup" ? "active" : ""}`}
-            onClick={() => { setMode("signup"); setError(null); }}
-          >
-            Criar conta
-          </button>
-        </div>
+            <form className="auth-card" onSubmit={submit}>
+              <div className="auth-mode">
+                <button
+                  type="button"
+                  className={mode === "signin" ? "auth-tab is-active" : "auth-tab"}
+                  onClick={() => setMode("signin")}
+                >
+                  Entrar
+                </button>
+                <button
+                  type="button"
+                  className={mode === "signup" ? "auth-tab is-active" : "auth-tab"}
+                  onClick={() => setMode("signup")}
+                >
+                  Criar conta
+                </button>
+              </div>
 
-        <form className="auth-form" onSubmit={submit}>
-          <label className="auth-label">
-            Usuário
-            <input
-              className="auth-input"
-              type="text"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="seu_usuario"
-              disabled={loading}
-            />
-          </label>
-          <label className="auth-label">
-            Senha
-            <input
-              className="auth-input"
-              type="password"
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              disabled={loading}
-            />
-          </label>
+              <label className="auth-field">
+                <span>Usuário</span>
+                <input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  placeholder="Digite seu usuário"
+                />
+              </label>
 
-          {error && <p className="auth-error">{error}</p>}
+              <label className="auth-field">
+                <span>Senha</span>
+                <input
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  type="password"
+                  autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                  placeholder="••••••••"
+                />
+              </label>
 
-          <button className="auth-submit" type="submit" disabled={loading || !username || !password}>
-            {loading ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}
-          </button>
-        </form>
+              {error ? <p className="auth-error">{error}</p> : null}
+
+              <button className="auth-submit" type="submit" disabled={isLoading}>
+                {isLoading ? "Aguarde..." : mode === "signin" ? "Entrar" : "Criar e entrar"}
+              </button>
+            </form>
+          </div>
+        </main>
       </div>
     </div>
   );

@@ -117,6 +117,7 @@
   cursor: pointer;
   text-align: left;
   transition: color 0.12s;
+  text-decoration: none;
 }
 
 .session-item-main:hover,
@@ -1020,6 +1021,12 @@
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+  text-decoration: none;
+}
+
+.sidebar-prefs-btn.is-active {
+  background: var(--sidebar-item-active);
+  color: var(--text);
 }
 
 .sidebar-prefs-btn:hover {
@@ -1162,6 +1169,7 @@
   font-size: 14px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+  text-decoration: none;
 }
 
 .sidebar-nav-btn:hover {
@@ -1173,6 +1181,29 @@
   background: var(--sidebar-item-active);
   color: var(--text);
 }
+
+/* Botão "Voltar ao início" na sidebar do chat (variação suave do nav-btn). */
+.sidebar-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.sidebar-back-btn:hover { background: var(--sidebar-item-hover); color: var(--text); }
+.sidebar-back-btn svg { flex-shrink: 0; }
+
+/* Empurra o footer da SidebarMain pro fundo do container quando não há sessões. */
+.sidebar-spacer { flex: 1; }
 
 .content.is-biblioteca {
   overflow-y: auto;
@@ -2627,3 +2658,182 @@ a.msg-source-link:hover {
   color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 1px 8px;
 }
 .dashboard-summ-preview { font-size: 12px; color: var(--text-muted); }
+.dashboard-summ-kind.is-pending,
+.dashboard-summ-kind.is-processing { color: var(--text-muted); background: var(--surface-soft); }
+.dashboard-summ-kind.is-failed { color: #e5484d; background: color-mix(in srgb, #e5484d 12%, transparent); }
+
+/* ---------------------------------------------------------------------------
+ * DocumentPanel informativo — cards com os trechos (RAG) da mensagem clicada.
+ * ------------------------------------------------------------------------- */
+.source-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.source-card {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.source-card-head { display: flex; align-items: center; gap: 8px; }
+.source-card-idx {
+  flex-shrink: 0;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 11px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.source-card-name {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;
+}
+.source-card-meta {
+  font-size: 11.5px; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.source-card-snippet {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  font-size: 12.5px; line-height: 1.5;
+  color: var(--text-muted);
+  font-style: italic;
+  max-height: 8em; overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical;
+}
+.source-card-actions { display: flex; justify-content: flex-end; }
+.source-card-actions .btn-ghost { font-size: 11.5px; padding: 4px 10px; }
+
+/* Botão "Ver fontes no painel" dentro do popover de referências. */
+.msg-ref-open-all {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 11.5px; font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.msg-ref-open-all:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* ---------------------------------------------------------------------------
+ * ResumosView — grid de cards com polling.
+ * ------------------------------------------------------------------------- */
+.resumos { padding: 24px 32px; display: flex; flex-direction: column; gap: 20px; max-width: 1200px; margin: 0 auto; width: 100%; }
+.resumos-head h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.resumos-sub { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); }
+.resumos-empty { font-size: 13px; color: var(--text-faint); padding: 40px 0; text-align: center; }
+.resumos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+.resumo-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+}
+.resumo-card:hover { border-color: var(--border-strong); transform: translateY(-1px); box-shadow: var(--shadow); }
+.resumo-card.is-highlight { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.resumo-card-body {
+  width: 100%;
+  padding: 14px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 130px;
+}
+.resumo-card-body:disabled { cursor: default; }
+.resumo-card-status {
+  align-self: flex-start;
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  padding: 3px 10px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.resumo-card-status.is-pending,
+.resumo-card-status.is-processing { color: var(--text-muted); background: var(--surface-soft); }
+.resumo-card-status.is-done { color: var(--accent); background: var(--accent-soft); }
+.resumo-card-status.is-failed { color: #e5484d; background: color-mix(in srgb, #e5484d 15%, transparent); }
+.resumo-card-spinner {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  animation: resumo-spin .8s linear infinite;
+}
+@keyframes resumo-spin { to { transform: rotate(360deg); } }
+.resumo-card-title {
+  margin: 0; font-size: 14.5px; font-weight: 600; color: var(--text); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.resumo-card-meta { margin: 0; font-size: 11.5px; color: var(--text-muted); }
+.resumo-card-error {
+  margin: 0; font-size: 11.5px; color: #e5484d;
+  padding: 6px 8px; background: color-mix(in srgb, #e5484d 8%, transparent); border-radius: 6px;
+}
+.resumo-card-delete {
+  position: absolute; top: 8px; right: 8px;
+  background: none; border: none; padding: 4px; border-radius: 6px;
+  color: var(--text-faint); cursor: pointer; opacity: 0;
+  transition: opacity .15s ease, background .15s ease, color .15s ease;
+}
+.resumo-card:hover .resumo-card-delete { opacity: 1; }
+.resumo-card-delete:hover { background: color-mix(in srgb, #e5484d 12%, transparent); color: #e5484d; }
+.resumo-card-delete svg { width: 14px; height: 14px; }
+
+/* ---------------------------------------------------------------------------
+ * SummaryDetailView — header + chips + tabs.
+ * ------------------------------------------------------------------------- */
+.summary-detail { padding: 24px 32px; display: flex; flex-direction: column; gap: 16px; max-width: 900px; margin: 0 auto; width: 100%; }
+.summary-detail-loading, .summary-detail-empty, .summary-detail-empty-tab {
+  font-size: 13px; color: var(--text-muted); text-align: center; padding: 40px 0;
+}
+.summary-detail-head { display: flex; align-items: flex-start; gap: 14px; }
+.summary-detail-back { align-self: flex-start; flex-shrink: 0; }
+.summary-detail-title { flex: 1; min-width: 0; }
+.summary-detail-title h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.summary-detail-meta { display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted); }
+.summary-detail-docs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.summary-detail-docs-label { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-right: 4px; }
+.summary-detail-chip {
+  font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  background: var(--surface-soft); border: 1px solid var(--border); color: var(--text);
+  max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.summary-detail-tabs {
+  display: flex; gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.summary-detail-tab {
+  background: none; border: none; padding: 10px 16px;
+  font-size: 13.5px; font-weight: 500; color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color .15s ease, border-color .15s ease;
+}
+.summary-detail-tab:hover { color: var(--text); }
+.summary-detail-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+.summary-detail-body { min-height: 300px; }
+.summary-detail-body .md { line-height: 1.6; }
+.summary-detail-body .mindmap-view { height: 60vh; min-height: 400px; }
