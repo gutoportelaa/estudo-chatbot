@@ -220,10 +220,14 @@ devem conter `{content}`), com padrão que pede estrutura em markdown.
 - **Streaming resiliente + inspector sempre-ligado:** store de módulo por sessão
   (`chatStore.ts`) e `ContextInspector.tsx` mostrando o *budget* por bloco
   (system/summary/rag/recent/tool) e a timeline de sumarização.
-- **Deploy de frontend gateado:** `.github/workflows/frontend-deploy.yml`
-  (build Vite → `s3 sync` → invalidação CloudFront) roda só com
-  `ENABLE_FRONTEND_DEPLOY=true` — assim **não bloqueia o merge** enquanto o front é
-  servido pela EC2 e o CloudFront não está provisionado.
+- **Deploy de frontend opcional (não usado em produção):** existe um workflow
+  pronto, `.github/workflows/frontend-deploy.yml` (build Vite → `s3 sync` →
+  invalidação CloudFront), mas ele **não roda** hoje — está gateado por
+  `if: vars.ENABLE_FRONTEND_DEPLOY == 'true'` e essa var não está setada no repo, só
+  para **não bloquear o merge** (a AWS não tem credenciais configuradas para esse
+  job). Em produção, o frontend é servido pela própria EC2 via **nginx:alpine**
+  (container `web` do `docker-compose.yml`), junto com a API. S3+CloudFront segue
+  como opção documentada em `docs/aws-runbook.md`, não provisionada.
 
 ---
 
@@ -237,7 +241,7 @@ devem conter `{content}`), com padrão que pede estrutura em markdown.
 | RAG cita "a fonte" | Cita **página** (chunk page-aware) + referências **por mensagem** + isolamento por conversa |
 | Consumo (modal) | **Página** dedicada com KPIs, falhas, uso de RAG; `TurnMetric` grava status/erro **em falha** |
 | Resumos (backend) | Front renderiza markdown, auto-exibe, consolidado + mapa; **prompts por env** |
-| Frontend no nginx da EC2 | Workflow **S3+CloudFront gateado** (não bloqueia merge; EC2 serve só a API quando ligado) |
+| Frontend no nginx da EC2 (planejado e **em uso**) | Workflow S3+CloudFront **existe mas está gateado/desligado** — opção documentada, não provisionada |
 | Perfil (planejado simples) | B1/B2 com avatar (storage abstraído) + **Dashboard** pós-login SPA state-driven |
 
 > **Sinal de diagrama (para gerar imagem via LLM):** os blocos ` ```diagram-spec `
@@ -252,8 +256,7 @@ devem conter `{content}`), com padrão que pede estrutura em markdown.
   "orientacao": "esquerda-para-direita",
   "nos": [
     {"id": "user", "rotulo": "Usuário (browser)", "grupo": "cliente"},
-    {"id": "cf", "rotulo": "CloudFront + S3 (frontend estático, 24/7)", "grupo": "aws-edge"},
-    {"id": "web", "rotulo": "React SPA (Vite/bun)", "grupo": "cliente"},
+    {"id": "web", "rotulo": "React SPA (nginx:alpine, na EC2)", "grupo": "aws-vpc-publica"},
     {"id": "api", "rotulo": "FastAPI (EC2, subnet pública)", "grupo": "aws-vpc-publica"},
     {"id": "db", "rotulo": "PostgreSQL 16 + pgvector (container)", "grupo": "aws-vpc-privada"},
     {"id": "s3", "rotulo": "S3 (PDFs, presigned)", "grupo": "aws"},
@@ -262,8 +265,7 @@ devem conter `{content}`), com padrão que pede estrutura em markdown.
     {"id": "web_search", "rotulo": "Busca web (Tavily/DuckDuckGo)", "grupo": "externo"}
   ],
   "arestas": [
-    {"de": "user", "para": "cf", "rotulo": "HTTPS"},
-    {"de": "cf", "para": "web", "rotulo": "serve build"},
+    {"de": "user", "para": "web", "rotulo": "HTTP, Elastic IP"},
     {"de": "web", "para": "api", "rotulo": "REST + SSE"},
     {"de": "api", "para": "db", "rotulo": "SQLAlchemy async"},
     {"de": "api", "para": "s3", "rotulo": "upload/presign"},

@@ -12,7 +12,7 @@ uso — com deploy em nuvem (AWS) e CI/CD.
 | LLM       | Gemini (ADK) · Groq / OpenRouter / **Ollama** (OpenAI-compat)      | —           |
 | Embeddings| Ollama (dev) · Gemini / **OpenRouter** (prod)                      | —           |
 | Banco     | PostgreSQL 16 + **pgvector**                                       | —           |
-| Nuvem     | AWS: VPC + EC2 + S3 (+ CloudFront no front)                        | —           |
+| Nuvem     | AWS: VPC + EC2 (API + front via nginx) + S3                        | —           |
 
 ---
 
@@ -44,8 +44,7 @@ Toda a documentação de referência vive em [`docs/`](docs/):
   "orientacao": "esquerda-para-direita",
   "nos": [
     {"id": "user", "rotulo": "Usuário (browser)", "grupo": "cliente"},
-    {"id": "cf", "rotulo": "CloudFront + S3 (frontend 24/7)", "grupo": "aws-edge"},
-    {"id": "web", "rotulo": "React SPA (Vite/bun)", "grupo": "cliente"},
+    {"id": "web", "rotulo": "React SPA (nginx:alpine, na EC2)", "grupo": "aws-vpc-publica"},
     {"id": "api", "rotulo": "FastAPI (EC2, subnet pública)", "grupo": "aws-vpc-publica"},
     {"id": "db", "rotulo": "PostgreSQL 16 + pgvector", "grupo": "aws-vpc-privada"},
     {"id": "s3", "rotulo": "S3 (PDFs, presigned)", "grupo": "aws"},
@@ -54,8 +53,7 @@ Toda a documentação de referência vive em [`docs/`](docs/):
     {"id": "web_search", "rotulo": "Busca web (Tavily/DuckDuckGo)", "grupo": "externo"}
   ],
   "arestas": [
-    {"de": "user", "para": "cf", "rotulo": "HTTPS"},
-    {"de": "cf", "para": "web", "rotulo": "serve build"},
+    {"de": "user", "para": "web", "rotulo": "HTTP, Elastic IP"},
     {"de": "web", "para": "api", "rotulo": "REST + SSE"},
     {"de": "api", "para": "db", "rotulo": "SQLAlchemy async"},
     {"de": "api", "para": "s3", "rotulo": "upload/presign"},
@@ -188,14 +186,19 @@ ambientes de teste (local/rede e AWS) documentada em [`docs/CONTEXT.md`](docs/CO
 
 ## Deploy na AWS
 
-Guia completo (VPC, Security Groups, S3/IAM, EC2, CI/CD, CloudFront e checklist de
-aceitação da banca) em **[`docs/aws-runbook.md`](docs/aws-runbook.md)**.
+Guia completo (VPC, Security Groups, S3/IAM, EC2, CI/CD e checklist de aceitação da
+banca) em **[`docs/aws-runbook.md`](docs/aws-runbook.md)**.
 
-Resumo: EC2 pública serve a API (Postgres+pgvector em container), S3 guarda os PDFs
-via IAM Role (sem chave no disco), o CD (`.github/workflows/cd.yml`) faz
+**O que está de fato em produção hoje:** uma única EC2 pública roda os três
+containers do `docker-compose.yml` — `db` (Postgres+pgvector), `api` (FastAPI) e
+`web` (nginx:alpine servindo o build do React). S3 guarda os PDFs via IAM Role (sem
+chave no disco). O CD (`.github/workflows/cd.yml`) faz
 SSH → `git pull` → `docker compose pull/up` → health check ao promover `dev → main`.
-O frontend pode ir para S3+CloudFront (workflow `frontend-deploy.yml`, gateado por
-`ENABLE_FRONTEND_DEPLOY=true`).
+
+**S3+CloudFront para o frontend é uma opção documentada, não provisionada.** Existe
+um workflow pronto (`frontend-deploy.yml`), mas ele só roda se a repo var
+`ENABLE_FRONTEND_DEPLOY=true` for setada — hoje não está, então o job fica
+*skipped* e o frontend continua sendo servido pela própria EC2 via nginx.
 
 ---
 
