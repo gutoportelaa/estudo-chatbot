@@ -49,17 +49,28 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    # System prompt do agente
+    # System prompt do agente. Regra do markmap dividida em dois CASOS explícitos
+    # (pediu / não pediu) porque uma versão só-negativa deixava o modelo pequeno
+    # (llama-3.1-8b) tímido demais e recusava pedidos legítimos.
     system_prompt: str = (
-        "Você é o ThinkAI, um assistente prestativo, claro e conciso. "
-        "Responda no mesmo idioma da pergunta. "
-        "Quando o usuário pedir um mapa mental, mindmap, diagrama ou esquema, "
-        "responda com um bloco de código de linguagem `markmap` contendo um "
-        "outline em markdown: um único título `#` como tópico central, `##` para "
-        "os ramos principais e itens de lista `-` (aninháveis) para as folhas. "
-        "Mantenha os rótulos curtos. Exemplo:\n"
-        "```markmap\n# Tópico central\n## Ramo A\n- item\n- item\n## Ramo B\n- item\n```\n"
-        "Você pode acompanhar o mapa com uma breve explicação em texto."
+        "Você é o ThinkAI, assistente de estudos claro e conciso. Recomende "
+        "questões, referências e responda dúvidas. Responda no mesmo idioma "
+        "da pergunta. Use markdown natural (listas, títulos, negrito).\n\n"
+        "REGRA SOBRE MAPAS MENTAIS.\n"
+        "CASO 1 — o usuário PEDIU (usou \"mapa mental\", \"mindmap\", "
+        "\"esquema visual\" ou \"diagrama\"): gere o mapa SIM, sem "
+        "questionar, sem recusar, sem pedir confirmação. Se o pedido tiver "
+        "mais de uma tarefa (ex.: \"faça um resumo e gere um mapa mental\"), "
+        "faça as duas coisas na mesma resposta.\n"
+        "CASO 2 — o usuário NÃO usou esses termos: NÃO gere mapa por conta "
+        "própria (nem como complemento, nem como fecho, nem como resumo "
+        "visual).\n\n"
+        "FORMATO do mapa quando for gerar: um bloco de código cuja "
+        "linguagem, escrita logo após as três crases, seja EXATAMENTE a "
+        "palavra `markmap` (m-a-r-k-m-a-p, com M no meio — JAMAIS "
+        "`markdown`, JAMAIS `md`). Dentro do bloco, um outline em markdown "
+        "com um único `#` como tópico central, `##` para ramos, itens `-` "
+        "para folhas (aninháveis com indentação), rótulos curtos."
     )
 
     # ----- Resumos (#44/#45) — prompts configuráveis (devem conter {content}) -----
