@@ -136,7 +136,7 @@ def _extract_title(content: str) -> tuple[str | None, str]:
 
     Case-insensitive porque alguns modelos escrevem ``Titulo:`` sem acento.
     """
-    pattern = re.compile(rf"^\s*T[ÍI]TULO:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+    pattern = re.compile(r"^\s*T[ÍI]TULO:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
     m = pattern.search(content)
     if not m:
         return None, content.strip()
