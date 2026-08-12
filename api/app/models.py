@@ -19,6 +19,11 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    # RF-001: campos de perfil
+    full_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(254), unique=True, nullable=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     sessions: Mapped[list["Session"]] = relationship(

@@ -73,7 +73,7 @@ export default function App() {
               <div className="orb" />
               <h1 className="greeting-title">Entre para continuar</h1>
               <p className="greeting-subtitle">
-                Chatbot multiusuário com sessões separadas por conta.
+                Seu chatbot de estudo : )
               </p>
 
               <form className="auth-card" onSubmit={submitAuth}>

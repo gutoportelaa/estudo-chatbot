@@ -4,6 +4,10 @@ const TOKEN_STORAGE_KEY = "thinkai.jwt";
 export interface AuthUser {
   id: string;
   username: string;
+  full_name?: string | null;
+  email?: string | null;
+  description?: string | null;
+  avatar_url?: string | null;
   created_at: string;
 }
 
@@ -102,6 +106,17 @@ export async function signin(username: string, password: string): Promise<string
 
 export async function getProfile(): Promise<AuthUser> {
   return req<AuthUser>("/auth/profile");
+}
+
+export interface UpdateProfilePayload {
+  full_name?: string | null;
+  email?: string | null;
+  description?: string | null;
+  avatar_url?: string | null;
+}
+
+export async function updateProfile(data: UpdateProfilePayload): Promise<AuthUser> {
+  return req<AuthUser>("/auth/me", { method: "PATCH", body: JSON.stringify(data) });
 }
 
 // ---------- Health ----------
