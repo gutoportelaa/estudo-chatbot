@@ -1,8 +1,11 @@
 # LangGraph
 .langgraph_api/
 
+# Imagens de referência/rascunho não entram no repo; versionamos apenas o que
+# documenta o projeto (diagramas e capturas em docs/) e a marca.
 *.png
-!docs/*.png
+!docs/**/*.png
+!assets/ThinkAI.png
 
 # Python / uv (backend)
 api/.venv/
