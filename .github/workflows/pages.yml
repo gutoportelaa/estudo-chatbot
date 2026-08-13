@@ -1,0 +1,63 @@
+name: Demo (GitHub Pages)
+
+# Publica o frontend em modo demo (API simulada no browser, sem backend).
+# Ver web/src/demo/ — o build normal da EC2 não inclui nada disso.
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "web/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Uma publicação por vez; não cancela a que já estiver em andamento.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Instalar dependências
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Build da demo
+        working-directory: web
+        env:
+          # O Pages serve em https://<user>.github.io/<repo>/
+          VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_DEMO: "1"
+          VITE_API_URL: /api
+        run: bun run build
+
+      - name: SPA fallback (404 = index)
+        working-directory: web
+        run: cp dist/index.html dist/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

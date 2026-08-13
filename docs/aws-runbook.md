@@ -81,12 +81,19 @@ thinkai.seudominio.com {
 ```
 Alternativa sem domínio: HTTP na 80 para a demo (a banca aceita, mas 443 pontua mais).
 
-### Frontend em S3 + CloudFront (site 24/7, alivia a EC2)
+### Frontend em S3 + CloudFront — opcional, **não provisionado hoje**
 
-O frontend é estático (build do Vite). Hospedá-lo em **S3 + CloudFront** deixa o
-site no ar **mesmo com a EC2 desligada** (que passa a subir só para a API nas
-demos), com HTTPS/CDN grátis. A EC2 serve **só a API** (`docker compose` sem o
-serviço `web`). Deploy automatizado em `.github/workflows/frontend-deploy.yml`.
+> **Status atual: não implementado em produção.** O frontend roda hoje no
+> container `web` (nginx:alpine) da própria EC2, junto com a API — é isso que
+> está no ar. O que segue é um guia para quem quiser migrar para S3+CloudFront;
+> o workflow existe no repo mas fica **desativado** (job gateado, ver abaixo)
+> até esses passos serem seguidos e a repo var ser setada.
+
+O frontend é estático (build do Vite), então **poderia** ser hospedado em
+**S3 + CloudFront**, deixando o site no ar mesmo com a EC2 desligada (que passaria
+a subir só para a API nas demos), com HTTPS/CDN grátis. Deploy automatizado
+existe pronto em `.github/workflows/frontend-deploy.yml`, mas **só roda se a repo
+var `ENABLE_FRONTEND_DEPLOY=true` for setada** — hoje não está.
 
 **Console (us-east-1):**
 1. **S3 → Create bucket** `thinkai-web-<sufixo>`, **Block all public access = ON**
@@ -104,12 +111,15 @@ serviço `web`). Deploy automatizado em `.github/workflows/frontend-deploy.yml`.
 - `vars.VITE_API_URL` = `http://<elastic-ip>:8000` (ou o domínio da API).
 - `secrets.AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (do usuário IAM acima).
 - `secrets.WEB_S3_BUCKET`, `secrets.CLOUDFRONT_DISTRIBUTION_ID`, `vars.AWS_REGION`.
+- Por fim, **`vars.ENABLE_FRONTEND_DEPLOY=true`** — sem essa var o job fica
+  *skipped* mesmo com os secrets acima configurados.
 
-Ao dar merge em `main`, o workflow builda o frontend com a `VITE_API_URL`, faz
-`s3 sync` e invalida o CloudFront. **CORS da API**: o `CORS_ORIGINS` já é `*` no
-compose de produção, então a origem do CloudFront é aceita (restrinja depois, se
-quiser, ao domínio da distribuição). Com isso, pode remover o serviço `web` do
-`docker-compose.yml` na EC2.
+Só então, ao dar merge em `main`, o workflow builda o frontend com a
+`VITE_API_URL`, faz `s3 sync` e invalida o CloudFront. **CORS da API**:
+`CORS_ORIGINS=*` no compose de produção já aceita a origem do CloudFront
+(restrinja depois, se quiser, ao domínio da distribuição). Só com tudo isso no ar
+faz sentido remover o serviço `web` do `docker-compose.yml` na EC2 — **até lá, o
+`web` continua sendo a forma real de servir o frontend em produção.**
 
 ### Economia (opcional) — desligar fora de horário
 **EventBridge → Schedule** (cron) → **Lambda** chamando `ec2:StopInstances`/

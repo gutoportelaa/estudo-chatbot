@@ -1,307 +1,288 @@
-# ThinkAI — Chatbot multiusuário (estudo)
+<div align="center">
 
-Protótipo funcional de um chatbot multiusuário, usando **Google Gemini** como LLM
-e **LangGraph** para orquestração com histórico isolado por sessão.
+<img src="assets/ThinkAI.png" alt="ThinkAI" width="110" />
 
-| Camada    | Stack                                                    | Gerenciador |
-| --------- | -------------------------------------------------------- | ----------- |
-| `web/`    | React + TypeScript + Vite                                | **bun**     |
-| `api/`    | Python + FastAPI + LangGraph + `langchain-google-genai`  | **uv**      |
-| LLM       | Google Gemini · modelo `gemini-2.0-flash` (API gratuita) | —           |
-| Histórico | LangGraph `SqliteSaver` (`thread_id = session_id`)       | —           |
+# ThinkAI
 
----
+**Chatbot de estudo que conversa com os seus PDFs.**
 
-## Como funciona (arquitetura)
+Upload de documentos, RAG com citação de página, busca web, resumos e mapas
+mentais — com gestão da janela de contexto e observabilidade de custo por turno.
 
-```
-Browser (React/Vite)               FastAPI (api)                 Google Gemini API
-  │  session_id (UUID,                 │                            │
-  │  guardado em localStorage)         │                            │
-  ├── POST /session ──────────────────►│  gera UUID                 │
-  │                                    │                            │
-  ├── POST /chat (SSE) ───────────────►│  LangGraph.astream ───────►│ gemini-2.0-flash
-  │◄───── tokens (text/event-stream) ──┤  thread_id = session_id    │
-  │                                    │                            │
-  │                              SqliteSaver (data/sessions.sqlite)
-  │                              histórico isolado por sessão
-```
+### [▶ Abrir a demo](https://gutoportelaa.github.io/estudo-chatbot/)
 
-- **Multiusuário:** o backend é assíncrono; cada requisição carrega seu `session_id`.
-- **Isolamento:** o `SqliteSaver` do LangGraph guarda o histórico por `thread_id`, então cada
-  resposta volta apenas para a sessão/usuário correto (verificado: a sessão A lembra o nome
-  informado; a sessão B não tem acesso a ele).
-- **Persistência:** o histórico sobrevive a reinícios do servidor (fica em `api/data/sessions.sqlite`).
+<sub>Vitrine estática no GitHub Pages: a interface é a real, com dados de exemplo e sem backend.</sub>
 
+[![CI](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/ci.yml)
+[![CD](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/cd.yml/badge.svg)](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/cd.yml)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20+%20pgvector-4169E1?logo=postgresql&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-EC2%20·%20S3-FF9900?logo=amazonaws&logoColor=white)
 
-## Pré-requisito: chave da API Gemini
+</div>
 
-Obtenha gratuitamente em <https://aistudio.google.com/app/apikey> (conta Google).
-O tier gratuito oferece **1.500 requisições/dia** e **15 req/min** — mais que suficiente.
+<div align="center">
+  <img src="docs/screenshots/05-chat-citacoes.png" alt="Chat do ThinkAI respondendo com citações de página extraídas dos PDFs do usuário" width="100%" />
+  <sub><i>Resposta gerada a partir dos PDFs do usuário, com as fontes e a página de origem de cada trecho.</i></sub>
+</div>
 
 ---
 
-## Rodando localmente (desenvolvimento)
+## O que ele faz
 
-Pré-requisitos: [uv](https://docs.astral.sh/uv/) e [bun](https://bun.sh).
+|  | Recurso | Como funciona |
+|---|---|---|
+| 📄 | **Biblioteca de PDFs** | Upload com fila e progresso real, capa gerada do documento, extração de texto (PyMuPDF + OCR) |
+| 🔍 | **RAG com citação de página** | Chunking *page-aware* → embeddings → pgvector; a resposta aponta o documento **e a página** |
+| 🌐 | **Busca web** | Tavily, com fallback DuckDuckGo quando não há chave |
+| 🧠 | **Memória gerenciada** | Sumarização híbrida do histórico com orçamento de tokens por bloco |
+| 🗺️ | **Resumos e mapas mentais** | Resumo por documento, resumo consolidado de vários PDFs e mapa mental (Markmap) |
+| 📊 | **Observabilidade** | Tokens, custo estimado, latência, taxa de sucesso e falhas por modelo |
+| 🔐 | **Multiusuário** | JWT; conversas e documentos isolados por conta e escopados por conversa |
 
-### 1. Backend (`api/`)
+---
+
+## Telas
+
+<table>
+<tr>
+<td width="50%">
+<img src="docs/screenshots/02-dashboard.png" alt="Dashboard inicial com acessos rápidos, documentos e resumos recentes" />
+<b>Início</b><br/><sub>Acessos rápidos, documentos e resumos recentes, resumo de consumo.</sub>
+</td>
+<td width="50%">
+<img src="docs/screenshots/03-biblioteca.png" alt="Biblioteca de documentos em grade, com capa gerada de cada PDF" />
+<b>Biblioteca</b><br/><sub>Capa gerada do PDF, ordenação e seleção para conversar sobre os documentos.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<img src="docs/screenshots/06-mapa-mental.png" alt="Painel lateral do documento exibindo resumo gerado por IA e mapa mental" />
+<b>Resumo e mapa mental</b><br/><sub>Clicar numa citação abre o documento no trecho de origem, com resumo e Markmap.</sub>
+</td>
+<td width="50%">
+<img src="docs/screenshots/04-consumo.png" alt="Tela de consumo com gráficos de tokens por dia, requisições e custo por modelo" />
+<b>Consumo</b><br/><sub>Tokens, custo, latência e falhas por período e por modelo.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<img src="docs/screenshots/01-login.png" alt="Tela de login do ThinkAI no tema escuro" />
+<b>Autenticação</b><br/><sub>Sessões separadas por conta, via JWT.</sub>
+</td>
+<td width="50%">
+<img src="docs/screenshots/07-nocturne.png" alt="A mesma conversa exibida no tema escuro nocturne" />
+<b>Tema <i>nocturne</i></b><br/><sub>Claro/escuro com cor de destaque configurável.</sub>
+</td>
+</tr>
+</table>
+
+---
+
+## Stack
+
+| Camada | Stack | Gerenciador |
+| --- | --- | --- |
+| `web/` | React + TypeScript + Vite (SPA state-driven) | **bun** |
+| `api/` | Python 3.12 + FastAPI + SQLAlchemy async + Alembic | **uv** |
+| LLM | Gemini (ADK) · Groq / OpenRouter / **Ollama** (OpenAI-compat) | — |
+| Embeddings | Ollama (dev) · Gemini / **OpenRouter** (prod) | — |
+| Banco | PostgreSQL 16 + **pgvector** | — |
+| Nuvem | AWS: VPC + EC2 (API + front via nginx) + S3 | — |
+
+---
+
+## Arquitetura
+
+```mermaid
+flowchart LR
+    user["👤 Usuário<br/>(browser)"]
+
+    subgraph aws["AWS · VPC pública"]
+        web["React SPA<br/>nginx:alpine"]
+        api["FastAPI<br/>EC2"]
+        db[("PostgreSQL 16<br/>+ pgvector")]
+    end
+
+    s3[("S3<br/>PDFs · presigned")]
+
+    subgraph ext["Serviços externos"]
+        llm["LLM<br/>Gemini · Groq · OpenRouter · Ollama"]
+        embed["Embeddings"]
+        search["Busca web<br/>Tavily · DuckDuckGo"]
+    end
+
+    user -->|"HTTP · Elastic IP"| web
+    web -->|"REST + SSE"| api
+    api -->|"SQLAlchemy async"| db
+    api -->|"upload / presign"| s3
+    api -->|"chat streaming"| llm
+    api -->|"reindex / query"| embed
+    api -->|"tool de contexto"| search
+```
+
+### Um turno de chat (Context Assembler)
+
+Cada turno monta o contexto dentro de um orçamento de tokens, e as ferramentas
+negociam a cota entre si antes da chamada ao modelo:
+
+```mermaid
+flowchart TD
+    msg["Usuário envia mensagem<br/>POST /chat · SSE"] --> budget["Context Assembler abre<br/>orçamento de tokens do modelo"]
+    budget --> system["Bloco system<br/>prompt do agente"]
+    system --> summary["Bloco resumo do histórico<br/>sumarização híbrida"]
+    summary --> tools["Ferramentas negociam cota<br/>RAG top-k por sessão + busca web"]
+    tools --> recent["Bloco janela recente<br/>N mensagens verbatim"]
+    recent --> call["Chama LLM → streaming de tokens"]
+    call --> persist["Persiste Message + sources<br/>+ TurnMetric (tokens/custo/status)"]
+```
+
+### Pipeline RAG (upload → citação de página)
+
+```mermaid
+flowchart TD
+    upload["Upload PDF ≤ 50 MB → S3"] --> extract["Extração PyMuPDF<br/>+ OCR Tesseract/Textract"]
+    extract --> chunk["Chunking page-aware<br/>Chunk.page"]
+    chunk --> embed["Embeddings em batch (32)<br/>+ retry e proveniência"]
+    embed --> store[("pgvector")]
+    store --> query["Turno: top-k restrito à sessão<br/>SessionDocument"]
+    query --> answer["Resposta + citação de página"]
+```
+
+> Os mesmos diagramas em formato `diagram-spec` (JSON descritivo, para renderizar
+> como imagem via LLM) estão em [`docs/CONTEXT.md`](docs/CONTEXT.md); o diagrama-fonte
+> renderizado fica em [`docs/diagrama_thinkai.png`](docs/diagrama_thinkai.png).
+
+---
+
+## Rodando localmente
+
+Pré-requisitos: [uv](https://docs.astral.sh/uv/), [bun](https://bun.sh) e Docker
+(para o Postgres + pgvector). Detalhes em [`docs/inicializacao-local.md`](docs/inicializacao-local.md).
+
+**1. Banco**
+```bash
+docker compose up -d db     # pgvector/pgvector:pg16
+```
+
+**2. Backend (`api/`)**
 ```bash
 cd api
-cp .env.example .env
-# edite .env e preencha: GEMINI_API_KEY=sua_chave_aqui
+cp .env.example .env        # ajuste LLM_PROVIDER, chaves e DATABASE_URL
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload --port 8001
 ```
 
-### 2. Frontend (`web/`)
+**3. Frontend (`web/`)**
 ```bash
 cd web
-cp .env.example .env   # VITE_API_URL=http://localhost:8000
+cp .env.example .env        # VITE_API_URL=http://localhost:8001
 bun install
-bun run dev            # http://localhost:5173
+bun run dev                 # http://localhost:5173
 ```
 
-Abra <http://localhost:5173>, envie uma mensagem e veja a resposta em streaming.
-Use o botão 🌙/☀️ no topo para alternar entre claro e nocturne.
+> **Sem chave de API:** use `LLM_PROVIDER=ollama` e `EMBEDDING_PROVIDER=ollama`
+> (com o [Ollama](https://ollama.com) rodando `llama3.2:3b`) para desenvolver
+> 100% offline. A busca web cai no fallback DuckDuckGo sem `TAVILY_API_KEY`.
 
----
-
-## Rodando com Docker (tudo junto)
+### Tudo junto com Docker
 
 ```bash
-# Na raiz do projeto:
-cp .env.example .env
-# edite .env e preencha: GEMINI_API_KEY=sua_chave_aqui
-
+cp .env.example .env        # preencha as chaves do provedor escolhido
 docker compose up -d --build
 ```
-
-- Web: <http://localhost> (porta 80)
-- API: <http://localhost:8000>
+Web em <http://localhost> (porta 80) · API em <http://localhost:8001>.
 
 ---
 
-## Documentação do endpoint (API)
+## Demo estática (GitHub Pages)
 
-Base URL local: `http://localhost:8000`
+<https://gutoportelaa.github.io/estudo-chatbot/>
 
-### `GET /health`
-Verifica se a API está no ar.
+O frontend é publicado sozinho, com uma **API simulada dentro do browser**
+(`web/src/demo/`): as chamadas de `fetch`/`XHR` são interceptadas e respondidas
+com dados de exemplo, incluindo um stream SSE falso para o chat. Serve para
+navegar a interface real sem infraestrutura — não há LLM nem banco por trás.
+
+O modo só existe quando o build recebe `VITE_DEMO=1`; o bundle de produção não
+inclui nenhum desses arquivos. Para rodar localmente:
+
 ```bash
-curl http://localhost:8000/health
-# {"status":"ok","model":"gemini-2.0-flash"}
+cd web
+VITE_DEMO=1 VITE_API_URL=/api bun run dev
 ```
-
-### `POST /session`
-Cria uma nova sessão e devolve um **ID único** (UUID). O frontend guarda esse ID em
-`localStorage` e o reenvia em cada mensagem.
-```bash
-curl -X POST http://localhost:8000/session
-# {"session_id":"bb98ab08-883c-41fb-a460-b52cbe41dacc"}
-```
-
-### `POST /chat`
-Envia uma mensagem e recebe a resposta em **streaming (SSE)**. Cada evento é uma linha
-`data: <pedaço de texto>`; o fim é sinalizado por `data: [DONE]`. Quebras de linha vêm
-escapadas como `\n`.
-
-Corpo (JSON):
-```json
-{ "session_id": "<uuid>", "message": "Sua pergunta aqui" }
-```
-Exemplo:
-```bash
-curl -N -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"session_id":"<uuid>","message":"Explique o que é uma API REST"}'
-```
-
-Exemplo no browser (consumindo o stream):
-```js
-const res = await fetch("http://localhost:8000/chat", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ session_id, message: "Olá!" }),
-});
-const reader = res.body.getReader();
-const dec = new TextDecoder();
-let buf = "";
-while (true) {
-  const { value, done } = await reader.read();
-  if (done) break;
-  buf += dec.decode(value, { stream: true });
-  for (const part of buf.split("\n\n")) {
-    if (!part.startsWith("data:")) continue;
-    const txt = part.slice(5).trim();
-    if (txt === "[DONE]") break;
-    console.log(txt.replace(/\\n/g, "\n"));
-  }
-}
-```
-
-### `GET /history/{session_id}`
-Retorna o histórico persistido de uma sessão.
-```bash
-curl http://localhost:8000/history/<uuid>
-# {"session_id":"...","messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}
-```
-
-> Documentação interativa (Swagger) disponível em `http://localhost:8000/docs`.
 
 ---
 
-## Demonstrando o histórico isolado por sessão
+## Testes
 
-Cada usuário recebe um `session_id` (UUID) e o histórico é guardado por `thread_id = session_id`
-no `SqliteSaver`. Há duas formas práticas de demonstrar o isolamento:
+```bash
+cd api && uv run pytest     # ~76 testes (SQLite em memória, sem rede)
+```
 
-### A) Pelo navegador (multiusuário real)
-O `session_id` fica no `localStorage`, então **cada navegador/janela anônima é um usuário diferente**:
-1. Abra <http://localhost:5173> no navegador normal e diga: *"Meu nome é Ana"*.
-2. Abra a mesma URL numa **janela anônima** (ou outro navegador/dispositivo) e pergunte: *"Qual é o meu nome?"*.
-3. A primeira sessão lembra "Ana"; a segunda **não sabe** — históricos isolados.
-4. Recarregar a página mantém a conversa (o ID persiste e o histórico vem de `/history`).
+CI (`.github/workflows/ci.yml`): a cada push/PR roda ruff + pytest (backend) e
+`tsc --noEmit` + build (frontend), bloqueando merge em caso de falha. Cobertura de
+ambientes de teste (local/rede e AWS) documentada em
+[`docs/CONTEXT.md`](docs/CONTEXT.md#testes-e-ambientes-de-teste).
 
-> Para simular vários usuários simultâneos a partir de um mesmo navegador, basta usar abas anônimas
-> distintas — cada contexto anônimo tem seu próprio `localStorage` e, portanto, seu próprio `session_id`.
+---
 
-### B) Por script (reproduzível, via API)
-Com a API rodando, execute o roteiro pronto que cria duas sessões e comprova o isolamento:
+## Deploy na AWS
+
+Guia completo (VPC, Security Groups, S3/IAM, EC2, CI/CD e checklist de aceitação da
+banca) em **[`docs/aws-runbook.md`](docs/aws-runbook.md)**.
+
+**O que está de fato em produção hoje:** uma única EC2 pública roda os três
+containers do `docker-compose.yml` — `db` (Postgres+pgvector), `api` (FastAPI) e
+`web` (nginx:alpine servindo o build do React). O S3 guarda os PDFs via IAM Role
+(sem chave no disco). O CD (`.github/workflows/cd.yml`) faz
+SSH → `git pull` → `docker compose pull/up` → health check ao promover `dev → main`.
+
+**S3+CloudFront para o frontend é uma opção documentada, não provisionada.** Existe
+um workflow pronto (`frontend-deploy.yml`), mas ele só roda se a repo var
+`ENABLE_FRONTEND_DEPLOY=true` for setada — hoje não está, então o job fica
+*skipped* e o frontend continua sendo servido pela própria EC2 via nginx.
+
+---
+
+## Isolamento por usuário e por conversa
+
+Autenticação **JWT**; cada sessão de chat pertence a um usuário e o histórico é
+persistido no Postgres por sessão. O RAG é escopado por conversa
+(`SessionDocument`): documentos anexados a uma conversa não vazam para outra.
+Roteiro reproduzível:
+
 ```bash
 ./scripts/demo_sessions.sh
-# ou apontando para outra URL:
-API_URL=http://SEU_IP_PUBLICO:8000 ./scripts/demo_sessions.sh
 ```
-Saída esperada (resumo): a sessão **A** aprende e lembra o nome/cor; a sessão **B**, com outro
-`session_id`, não tem acesso a esses dados, e `GET /history` mostra os históricos separados.
 
 ---
 
-## Deploy na AWS EC2 (público) - Guia Passo a Passo
+## API
 
-Como este pode ser seu primeiro contato com a infraestrutura da AWS, aqui está um guia didático e detalhado de como subir a aplicação usando o nível gratuito (Free Tier).
+Swagger interativo em `http://localhost:8001/docs`. Grupos de rotas:
 
-### Passo 1: Criando a Instância EC2 (O seu "Computador na Nuvem")
-
-1. Acesse o [Console da AWS](https://console.aws.amazon.com/) e faça login.
-2. Na barra de pesquisa superior, digite **EC2** e clique no primeiro resultado.
-3. No painel esquerdo ou na tela principal, clique no botão laranja **Launch instance** (Executar instância).
-4. **Name and tags:** Dê um nome para o seu servidor, por exemplo: `thinkai-server`.
-5. **Application and OS Images (Amazon Machine Image):** 
-   - Selecione **Ubuntu**.
-   - Na lista, escolha a versão **Ubuntu Server 24.04 LTS (HVM)** (verifique se tem a tag *Free tier eligible*).
-6. **Instance type:** Selecione **t2.micro** (também *Free tier eligible*, possui 1 vCPU e 1 GB de RAM).
-7. **Key pair (login):** 
-   - Clique em **Create new key pair**.
-   - Nome: `thinkai-key` (ou o que preferir).
-   - Tipo: **RSA**, Formato: **.pem** (para Mac/Linux) ou **.ppk** (para Windows usando PuTTY).
-   - Clique em **Create key pair**. O download do arquivo começará automaticamente. **Guarde este arquivo**, ele é sua única forma de acessar o servidor!
-8. **Network settings:**
-   - Marque a caixa **Allow SSH traffic from** e selecione **My IP** (Isso garante que apenas o seu computador atual pode acessar via terminal).
-   - Marque a caixa **Allow HTTP traffic from the internet** (Para que qualquer pessoa consiga acessar a porta 80 e ver o site).
-9. **Configure storage:** Pode deixar o padrão de **8 GiB** (gp3). O free tier permite até 30 GB, se quiser aumentar.
-10. Clique no botão laranja **Launch instance** no canto inferior direito.
-
-### Passo 2: Configurando as Portas Extras (Security Group)
-
-Nossa aplicação precisa da porta **8000** aberta para a comunicação da API com o Frontend.
-
-1. No console do EC2, vá em **Instances** (no menu lateral esquerdo) e clique no ID da sua nova instância.
-2. Na aba **Security**, na parte inferior da tela, clique no link abaixo de **Security groups** (ex: `sg-0abcd1234...`).
-3. Na aba **Inbound rules** (Regras de entrada), clique em **Edit inbound rules**.
-4. Clique em **Add rule** no final da lista:
-   - **Type:** Custom TCP
-   - **Port range:** 8000
-   - **Source:** Anywhere-IPv4 (`0.0.0.0/0`)
-   - **Description:** API Backend
-5. Clique em **Save rules**.
-
-### Passo 3: Conectando no Servidor
-
-Agora vamos acessar o terminal do seu servidor na AWS.
-
-1. Volte na tela de **Instances**, selecione sua instância e copie o **Public IPv4 address** (ex: `15.228.x.x`).
-2. Abra o terminal (no Linux/Mac) ou o PowerShell (no Windows).
-3. Navegue até a pasta onde salvou o arquivo `.pem` do Passo 1.
-4. (Apenas Linux/Mac) Ajuste a permissão da chave para que não seja pública:
-   ```bash
-   chmod 400 thinkai-key.pem
-   ```
-5. Conecte-se:
-   ```bash
-   ssh -i "thinkai-key.pem" ubuntu@SEU_IP_PUBLICO
-   ```
-   *Se perguntar se tem certeza que deseja continuar conectando, digite `yes` e dê Enter.*
-
-### Passo 4: Instalando Docker e Baixando o Projeto
-
-Dentro do terminal da sua EC2, execute os comandos abaixo, um por um:
-
-```bash
-# Atualiza os pacotes e instala o Docker e o Git
-sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
-
-# Dá permissão para o usuário 'ubuntu' rodar o Docker sem precisar de 'sudo'
-sudo usermod -aG docker ubuntu && newgrp docker
-
-# Baixa o código do projeto
-git clone https://github.com/gutoportelaa/estudo-chatbot.git && cd estudo-chatbot
-```
-
-### Passo 5: Configurando Senhas e Rodando (Deploy)
-
-Vamos criar o arquivo de variáveis de ambiente (`.env`) e iniciar os containers:
-
-```bash
-# 1. Crie o arquivo .env e adicione a chave do Gemini
-echo 'GEMINI_API_KEY=sua_chave_aqui' > .env
-
-# 2. Gere uma chave secreta para a autenticação JWT
-echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
-
-# 3. Defina uma senha segura para o banco de dados
-echo 'DB_PASSWORD=senha_super_segura_123' >> .env
-
-# 4. Aponte o frontend para o IP público da sua EC2
-sed -i 's#http://localhost:8000#http://SEU_IP_PUBLICO:8000#' docker-compose.yml
-
-# 5. Inicie a aplicação (vai baixar as imagens, construir e rodar em segundo plano)
-docker compose up -d --build
-```
-
-### Passo 6: Acessando e Testando
-
-Após o comando anterior terminar, sua aplicação está no ar!
-
-- **Acesse pelo navegador:** `http://3.14.85.184/` (deve abrir a tela de login).
-- **Teste a API (Healthcheck):** Pode ser feito no seu terminal local ou abrindo `http://3.14.85.184:8000/health` no navegador. Deve retornar `{"status":"ok"}`.
-
-> **Dica de Economia:** Quando não estiver mais estudando ou usando, vá no console da AWS, selecione a instância e clique em **Instance state -> Stop instance**. Instâncias paradas não cobram por hora de uso (apenas centavos pelo armazenamento do disco). Lembre-se que, ao iniciar de novo (Start instance), **o IP público mudará**, então você precisará atualizar o IP no `docker-compose.yml` e rodar `docker compose up -d` novamente. Caso queira fixar o IP público para não mudar nunca mais, você pode usar a funcionalidade de **Elastic IP** (que é gratuita se associada a uma instância em execução).
+| Grupo | Rotas |
+|---|---|
+| `auth` | signup, signin, perfil, avatar |
+| `chat` | `/chat` (SSE), sessões, contexto, sumarizações |
+| `documents` | upload, raw, thumbnail, extract, index, summary, mindmap |
+| `summaries` | resumo consolidado de vários documentos |
+| `metrics` | `/metrics/usage` |
 
 ---
 
-## Estrutura do projeto
+## Documentação
 
-```
-estudo-chatbot/
-├─ api/                  # Backend (uv)
-│  └─ app/
-│     ├─ main.py         # FastAPI: /session, /chat (SSE), /history, /health
-│     ├─ graph.py        # Grafo LangGraph (ChatGoogleGenerativeAI + checkpointer)
-│     ├─ chat.py         # Streaming SSE e leitura de histórico
-│     ├─ config.py       # Settings (.env)
-│     └─ schemas.py
-├─ web/                  # Frontend (bun)
-│  └─ src/
-│     ├─ App.tsx
-│     ├─ api/client.ts   # createSession / streamChat / fetchHistory
-│     ├─ hooks/          # useSession, useChat, useTheme
-│     ├─ components/     # Header, Greeting, PromptCards, ChatInput, MessageList...
-│     └─ styles/         # theme.css (claro/nocturne) + app.css
-├─ scripts/
-│  └─ demo_sessions.sh   # Demonstra isolamento de sessões via API
-├─ .env.example          # Variáveis para docker-compose
-├─ docker-compose.yml    # api + web
-└─ README.md
-```
+| Documento | Conteúdo |
+|---|---|
+| [`docs/CONTEXT.md`](docs/CONTEXT.md) | **Evolução completa** do projeto por etapas, decisões técnicas, arquitetura, diferenças em relação ao planejamento, testes e ambientes |
+| [`docs/aws-runbook.md`](docs/aws-runbook.md) | Bootstrap da infra AWS (VPC/SG/S3/IAM/EC2), custos e checklist de aceitação |
+| [`docs/inicializacao-local.md`](docs/inicializacao-local.md) | Bring-up local (Postgres 5433 + Alembic) |
+| [`docs/decisoes-janela-contexto.md`](docs/decisoes-janela-contexto.md) | Relatório técnico do épico de gestão de contexto (#30–#37) |
+
+A árvore anotada de diretórios e a descrição de cada módulo estão em
+[`docs/CONTEXT.md`](docs/CONTEXT.md#estrutura-de-diretórios).
