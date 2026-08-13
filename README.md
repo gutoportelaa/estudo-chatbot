@@ -9,6 +9,10 @@
 Upload de documentos, RAG com citação de página, busca web, resumos e mapas
 mentais — com gestão da janela de contexto e observabilidade de custo por turno.
 
+### [▶ Abrir a demo](https://gutoportelaa.github.io/estudo-chatbot/)
+
+<sub>Vitrine estática no GitHub Pages: a interface é a real, com dados de exemplo e sem backend.</sub>
+
 [![CI](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/ci.yml)
 [![CD](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/cd.yml/badge.svg)](https://github.com/gutoportelaa/estudo-chatbot/actions/workflows/cd.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
@@ -191,6 +195,25 @@ cp .env.example .env        # preencha as chaves do provedor escolhido
 docker compose up -d --build
 ```
 Web em <http://localhost> (porta 80) · API em <http://localhost:8001>.
+
+---
+
+## Demo estática (GitHub Pages)
+
+<https://gutoportelaa.github.io/estudo-chatbot/>
+
+O frontend é publicado sozinho, com uma **API simulada dentro do browser**
+(`web/src/demo/`): as chamadas de `fetch`/`XHR` são interceptadas e respondidas
+com dados de exemplo, incluindo um stream SSE falso para o chat. Serve para
+navegar a interface real sem infraestrutura — não há LLM nem banco por trás.
+
+O modo só existe quando o build recebe `VITE_DEMO=1`; o bundle de produção não
+inclui nenhum desses arquivos. Para rodar localmente:
+
+```bash
+cd web
+VITE_DEMO=1 VITE_API_URL=/api bun run dev
+```
 
 ---
 
